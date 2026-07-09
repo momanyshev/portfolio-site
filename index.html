@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="ru" data-theme="dark">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Максим - Product Engineer</title>
+    <meta
+      name="description"
+      content="Сайт-визитка Максима: краткая информация, опыт работы, достижения, pet-проекты и контакты."
+    >
+    <link rel="icon" href="favicon.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="site-header" aria-label="Навигация">
+      <a class="brand" href="#top" aria-label="К началу страницы">Максим</a>
+      <nav class="site-nav" aria-label="Основные разделы">
+        <a href="#about">Обо мне</a>
+        <a href="#experience">Опыт</a>
+        <a href="#projects">Проекты</a>
+        <a href="#contact">Контакты</a>
+      </nav>
+      <button
+        class="theme-toggle"
+        type="button"
+        data-theme-toggle
+        aria-label="Переключить тему"
+        aria-pressed="false"
+        title="Переключить тему"
+      >
+        <span class="theme-toggle-icon" aria-hidden="true">☾</span>
+      </button>
+    </header>
+
+    <main id="top">
+      <section class="hero" id="about" aria-labelledby="hero-title">
+        <div class="hero-photo">
+          <img src="assets/profile-placeholder.svg" alt="Фото Максима">
+          <div class="photo-caption">
+            <span>Open to product engineering roles</span>
+            <strong>API / Full-stack / Automation</strong>
+          </div>
+        </div>
+
+        <div class="hero-copy">
+          <p class="eyebrow">Краткая информация обо мне</p>
+          <h1 id="hero-title">Максим</h1>
+          <p class="role">Product Engineer / Full-stack Developer</p>
+          <p class="lead">
+            Разрабатываю web-продукты, API и внутренние инструменты. Мне
+            нравится соединять продуктовую логику, чистую инженерную реализацию
+            и понятное качество: тесты, наблюдаемость, документацию и быстрый
+            цикл обратной связи.
+          </p>
+          <div class="hero-facts" aria-label="Ключевая информация">
+            <span>Backend и API</span>
+            <span>Frontend-интерфейсы</span>
+            <span>Автоматизация процессов</span>
+            <span>Тестирование и качество</span>
+          </div>
+          <div class="hero-actions">
+            <a class="button primary" href="#experience">Опыт</a>
+            <a class="button secondary" href="#projects">Достижения и проекты</a>
+          </div>
+        </div>
+      </section>
+
+      <section class="section experience" id="experience" aria-labelledby="experience-title">
+        <div class="section-heading">
+          <p class="eyebrow">Опыт работы</p>
+          <h2 id="experience-title">Компании, роли и зоны ответственности</h2>
+        </div>
+
+        <div class="experience-list">
+          <article class="job-card">
+            <div class="job-meta">
+              <span class="period">2024 - сейчас</span>
+              <h3>Текущая компания</h3>
+              <p>Product Engineer</p>
+            </div>
+            <div class="job-body">
+              <p>
+                Разработка продуктовых функций, проектирование API, улучшение
+                внутренних процессов и поддержка релизного цикла.
+              </p>
+              <ul>
+                <li>Проектировал API-контракты и сценарии интеграции.</li>
+                <li>Собирал интерфейсы для операционных и продуктовых команд.</li>
+                <li>Добавлял автоматизированные проверки для критичных сценариев.</li>
+              </ul>
+              <div class="skill-tags">
+                <span>REST API</span>
+                <span>TypeScript</span>
+                <span>Testing</span>
+                <span>Product discovery</span>
+              </div>
+            </div>
+          </article>
+
+          <article class="job-card">
+            <div class="job-meta">
+              <span class="period">2022 - 2024</span>
+              <h3>Предыдущая компания</h3>
+              <p>Full-stack Developer</p>
+            </div>
+            <div class="job-body">
+              <p>
+                Участвовал в разработке клиентских интерфейсов, backend-логики
+                и инструментов, которые ускоряли работу команды.
+              </p>
+              <ul>
+                <li>Развивал пользовательские сценарии от макета до production.</li>
+                <li>Оптимизировал страницы, формы и обмен данными с API.</li>
+                <li>Писал документацию и помогал команде фиксировать решения.</li>
+              </ul>
+              <div class="skill-tags">
+                <span>React</span>
+                <span>Node.js</span>
+                <span>SQL</span>
+                <span>CI/CD</span>
+              </div>
+            </div>
+          </article>
+
+          <article class="job-card">
+            <div class="job-meta">
+              <span class="period">до 2022</span>
+              <h3>Проектная работа</h3>
+              <p>Developer / Automation</p>
+            </div>
+            <div class="job-body">
+              <p>
+                Делал небольшие сервисы, автоматизации и внутренние панели для
+                задач, где важны скорость запуска и прозрачный результат.
+              </p>
+              <ul>
+                <li>Автоматизировал ручные операции и повторяемые отчеты.</li>
+                <li>Собирал прототипы для проверки продуктовых гипотез.</li>
+                <li>Настраивал базовый мониторинг и регрессионные проверки.</li>
+              </ul>
+              <div class="skill-tags">
+                <span>Automation</span>
+                <span>Dashboards</span>
+                <span>API clients</span>
+                <span>QA flows</span>
+              </div>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section class="section projects" id="projects" aria-labelledby="projects-title">
+        <div class="section-heading">
+          <p class="eyebrow">Достижения / pet-проекты</p>
+          <h2 id="projects-title">Что показывает мой подход к качеству</h2>
+        </div>
+
+        <div class="achievement-grid">
+          <article class="achievement-card code-feature">
+            <div class="card-heading">
+              <span>API tests</span>
+              <h3>Пример покрытия тестами API эндпоинта</h3>
+            </div>
+            <p>
+              Такой блок можно заменить на реальный фрагмент из pet-проекта:
+              happy path, авторизация, валидация входных данных и ошибки.
+            </p>
+            <pre aria-label="Пример теста API эндпоинта"><code>describe("POST /api/orders", () =&gt; {
+  it("creates order for authorized user", async () =&gt; {
+    const response = await request(app)
+      .post("/api/orders")
+      .set("Authorization", authToken)
+      .send({ productId: product.id, quantity: 2 })
+      .expect(201);
+
+    expect(response.body).toMatchObject({
+      status: "created",
+      quantity: 2
+    });
+  });
+});</code></pre>
+          </article>
+
+          <article class="achievement-card">
+            <div class="card-heading">
+              <span>Pet project</span>
+              <h3>Сервис для управления задачами и статусами</h3>
+            </div>
+            <p>
+              Небольшой продуктовый прототип с API, dashboard-интерфейсом,
+              ролями пользователей и базовыми e2e-сценариями.
+            </p>
+            <div class="project-metric">
+              <strong>4</strong>
+              <span>ключевых пользовательских сценария покрыты проверками</span>
+            </div>
+          </article>
+
+          <article class="achievement-card">
+            <div class="card-heading">
+              <span>Automation</span>
+              <h3>Автоматизация регулярных проверок</h3>
+            </div>
+            <p>
+              Скрипты и проверки, которые помогают быстрее находить регрессии,
+              контролировать качество API и не держать рутину в голове.
+            </p>
+            <div class="quality-bars" aria-label="Типы проверок">
+              <span style="--width: 92%">API</span>
+              <span style="--width: 78%">Validation</span>
+              <span style="--width: 66%">Errors</span>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section class="contact" id="contact" aria-labelledby="contact-title">
+        <div class="contact-copy">
+          <h2 class="eyebrow contact-title" id="contact-title">Контакты</h2>
+        </div>
+        <ul class="contact-list" aria-label="Контактные ссылки">
+          <li>
+            <a href="mailto:m.manyshev@yandex.ru" aria-label="Написать на e-mail m.manyshev@yandex.ru">
+              <span class="contact-mark" aria-hidden="true">@</span>
+              <span>E-mail</span>
+            </a>
+          </li>
+          <li>
+            <a href="https://t.me/emtuse" aria-label="Открыть Telegram @emtuse">
+              <span class="contact-mark" aria-hidden="true">
+                <svg class="contact-icon" viewBox="0 0 24 24" focusable="false">
+                  <path d="M21.8 4.6 18.5 20c-.2 1-.8 1.2-1.6.7l-4.8-3.6-2.3 2.2c-.3.3-.5.5-1 .5l.4-5 9.1-8.2c.4-.4-.1-.6-.6-.2L6.4 13.5 1.6 12c-1-.3-1-1 0-1.4L20.4 3.4c.8-.3 1.6.2 1.4 1.2z"/>
+                </svg>
+              </span>
+              <span>Telegram</span>
+            </a>
+          </li>
+          <li>
+            <a href="https://www.linkedin.com/in/momanyshev" aria-label="Открыть LinkedIn профиль">
+              <span class="contact-mark" aria-hidden="true">
+                <svg class="contact-icon" viewBox="0 0 24 24" focusable="false">
+                  <path d="M5.1 8.9h3.4V20H5.1zM6.8 4a2 2 0 1 1 0 4.1 2 2 0 0 1 0-4.1zM10.6 8.9h3.2v1.5h.1c.5-.9 1.6-1.8 3.3-1.8 3.5 0 4.1 2.3 4.1 5.2V20h-3.4v-5.5c0-1.3 0-3-1.8-3s-2.1 1.4-2.1 2.9V20h-3.4z"/>
+                </svg>
+              </span>
+              <span>LinkedIn</span>
+            </a>
+          </li>
+          <li>
+            <a href="https://github.com/momanyshev" aria-label="Открыть GitHub профиль">
+              <span class="contact-mark" aria-hidden="true">
+                <svg class="contact-icon" viewBox="0 0 24 24" focusable="false">
+                  <path d="M12 .8a11.2 11.2 0 0 0-3.5 21.8c.6.1.8-.2.8-.6v-2c-3.2.7-3.9-1.3-3.9-1.3-.5-1.4-1.3-1.8-1.3-1.8-1.1-.7.1-.7.1-.7 1.2.1 1.8 1.2 1.8 1.2 1 .1.9 2.1 2.7 1.5.1-.8.4-1.3.8-1.6-2.6-.3-5.3-1.3-5.3-5.6 0-1.2.4-2.2 1.2-3-.1-.3-.5-1.5.1-3 0 0 1-.3 3.2 1.2a11 11 0 0 1 5.8 0c2.2-1.5 3.2-1.2 3.2-1.2.6 1.5.2 2.7.1 3 .8.8 1.2 1.8 1.2 3 0 4.3-2.7 5.3-5.3 5.6.4.4.8 1.1.8 2.2V22c0 .4.2.7.8.6A11.2 11.2 0 0 0 12 .8z"/>
+                </svg>
+              </span>
+              <span>GitHub</span>
+            </a>
+          </li>
+        </ul>
+      </section>
+    </main>
+    <script src="script.js"></script>
+  </body>
+</html>
