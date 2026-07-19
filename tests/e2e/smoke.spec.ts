@@ -24,6 +24,10 @@ test.describe("Smoke проверки портфолио", () => {
     await expect(navigation.getByRole("link", { name: "Опыт", exact: true })).toHaveAttribute("href", "#experience");
     await expect(navigation.getByRole("link", { name: "Проекты", exact: true })).toHaveAttribute("href", "#projects");
     await expect(navigation.getByRole("link", { name: "Контакты", exact: true })).toHaveAttribute("href", "#contact");
+    await expect(navigation.getByRole("link", { name: "QA Lab", exact: true })).toHaveAttribute(
+      "href",
+      "api-lab.html"
+    );
   });
 
   test("сохраняет выбранную тему", async ({ page }) => {
@@ -55,14 +59,20 @@ test.describe("Smoke проверки портфолио", () => {
       "href",
       "mailto:m.manyshev@yandex.ru"
     );
-    await expect(page.getByRole("link", { name: /telegram/i })).toHaveAttribute("href", "https://t.me/emtuse");
-    await expect(page.getByRole("link", { name: /linkedin/i })).toHaveAttribute(
+    const telegramLink = page.getByRole("link", { name: /telegram/i });
+    const linkedinLink = page.getByRole("link", { name: /linkedin/i });
+    const githubLink = page.getByRole("link", { name: /github/i });
+
+    await expect(telegramLink).toHaveAttribute("href", "https://t.me/emtuse");
+    await expect(linkedinLink).toHaveAttribute(
       "href",
       "https://www.linkedin.com/in/momanyshev"
     );
-    await expect(page.getByRole("link", { name: /github/i })).toHaveAttribute(
-      "href",
-      "https://github.com/momanyshev"
-    );
+    await expect(githubLink).toHaveAttribute("href", "https://github.com/momanyshev");
+
+    for (const socialLink of [telegramLink, linkedinLink, githubLink]) {
+      await expect(socialLink).toHaveAttribute("target", "_blank");
+      await expect(socialLink).toHaveAttribute("rel", "noopener noreferrer");
+    }
   });
 });

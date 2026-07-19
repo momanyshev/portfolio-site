@@ -1,0 +1,1551 @@
+{
+  "info": {
+    "_postman_id": "84a8ba8d-08f7-45e1-ac88-057b62cca38e",
+    "name": "api-lab",
+    "description": "Независимые API-сценарии QA Lab. Запускайте папки отдельно: CRUD smoke, data-driven validation, protocol/contract и workspace isolation. В environment хранится только baseUrl; все workspace и issue ID создаются во время запуска и очищаются teardown-запросами.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "event": [
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "const requestIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;",
+          "",
+          "pm.test(\"Время ответа менее 1 секунды\", function () {",
+          "  pm.expect(pm.response.responseTime).to.be.below(1000);",
+          "});",
+          "",
+          "pm.test(\"Ответ содержит обязательные служебные заголовки\", function () {",
+          "  pm.expect(pm.response.headers.get(\"Cache-Control\")).to.eql(\"no-store\");",
+          "  pm.expect(pm.response.headers.get(\"Vary\")).to.eql(\"X-Demo-Workspace-Id\");",
+          "  pm.expect(pm.response.headers.get(\"X-Request-Id\")).to.match(requestIdPattern);",
+          "});",
+          "",
+          "if (pm.response.code === 204) {",
+          "  pm.test(\"Ответ 204 не содержит тело и Content-Type\", function () {",
+          "    pm.expect(pm.response.text()).to.eql(\"\");",
+          "    pm.expect(pm.response.headers.get(\"Content-Type\")).to.not.exist;",
+          "  });",
+          "} else {",
+          "  pm.test(\"Ответ имеет JSON Content-Type и валидное JSON-тело\", function () {",
+          "    pm.expect(pm.response.headers.get(\"Content-Type\")).to.include(\"application/json\");",
+          "    pm.response.json();",
+          "  });",
+          "}",
+          "",
+          "if (pm.response.code >= 400) {",
+          "  pm.test(\"Ошибка соответствует общему контракту\", function () {",
+          "    const body = pm.response.json();",
+          "    pm.expect(body.error).to.be.an(\"object\");",
+          "    pm.expect(body.error.code).to.be.a(\"string\").and.not.empty;",
+          "    pm.expect(body.error.message).to.be.a(\"string\").and.not.empty;",
+          "    pm.expect(body.error.fields).to.be.an(\"object\");",
+          "    pm.expect(body.error.requestId).to.eql(pm.response.headers.get(\"X-Request-Id\"));",
+          "  });",
+          "}"
+        ]
+      }
+    }
+  ],
+  "item": [
+    {
+      "name": "01 — CRUD smoke",
+      "description": "Последовательный P0-сценарий с собственным workspace, проверкой CRUD и явным teardown.",
+      "event": [],
+      "item": [
+        {
+          "name": "00 — Инициализировать workspace",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set(\"workspaceId\", pm.variables.replaceIn(\"{{$guid}}\"));",
+                  "pm.collectionVariables.unset(\"issueId\");",
+                  "pm.collectionVariables.unset(\"smokeCreatedAt\");",
+                  "pm.collectionVariables.unset(\"smokeUpdatedAt\");",
+                  "pm.collectionVariables.unset(\"deletedIssueId\");",
+                  "pm.collectionVariables.unset(\"deletedWorkspaceId\");"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Код ответа — 200\", function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Новый workspace пуст\", function () {",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body).to.eql({ items: [], total: 0 });",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Demo-Workspace-Id",
+                "value": "{{workspaceId}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/issues"
+          },
+          "response": []
+        },
+        {
+          "name": "01 — Создать дефект",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const issueIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;",
+                  "let issue = {};",
+                  "",
+                  "try {",
+                  "  issue = pm.response.json();",
+                  "} catch {",
+                  "  // Проверки ниже сообщат о невалидном JSON.",
+                  "}",
+                  "",
+                  "pm.test(\"Код ответа — 201\", function () {",
+                  "  pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "pm.test(\"Тело содержит созданный дефект\", function () {",
+                  "  pm.expect(Object.keys(issue).sort()).to.eql([",
+                  "    \"id\",",
+                  "    \"title\",",
+                  "    \"description\",",
+                  "    \"severity\",",
+                  "    \"status\",",
+                  "    \"createdAt\",",
+                  "    \"updatedAt\"",
+                  "  ].sort());",
+                  "  pm.expect(issue).to.include({",
+                  "    title: \"Кнопка отправки неактивна\",",
+                  "    description: \"После заполнения обязательных полей кнопка остаётся неактивной.\",",
+                  "    severity: \"high\",",
+                  "    status: \"open\"",
+                  "  });",
+                  "  pm.expect(issue.id).to.match(issueIdPattern);",
+                  "  pm.expect(new Date(issue.createdAt).toISOString()).to.eql(issue.createdAt);",
+                  "  pm.expect(issue.updatedAt).to.eql(issue.createdAt);",
+                  "});",
+                  "",
+                  "pm.test(\"Location указывает на созданный дефект\", function () {",
+                  "  pm.expect(pm.response.headers.get(\"Location\")).to.eql(`/api/issues/${issue.id}`);",
+                  "});",
+                  "",
+                  "if (pm.response.code === 201 && issueIdPattern.test(issue.id)) {",
+                  "  pm.collectionVariables.set(\"issueId\", issue.id);",
+                  "  pm.collectionVariables.set(\"smokeCreatedAt\", issue.createdAt);",
+                  "  pm.collectionVariables.set(\"smokeUpdatedAt\", issue.updatedAt);",
+                  "} else {",
+                  "  pm.collectionVariables.unset(\"issueId\");",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Demo-Workspace-Id",
+                "value": "{{workspaceId}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Кнопка отправки неактивна\",\n  \"description\": \"После заполнения обязательных полей кнопка остаётся неактивной.\",\n  \"severity\": \"high\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/api/issues"
+          },
+          "response": []
+        },
+        {
+          "name": "02 — Получить отфильтрованный список",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Код ответа — 200\", function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Список содержит созданный дефект и соблюдает фильтры\", function () {",
+                  "  const body = pm.response.json();",
+                  "  const issueId = pm.collectionVariables.get(\"issueId\");",
+                  "  pm.expect(body.items).to.be.an(\"array\");",
+                  "  pm.expect(body.total).to.eql(body.items.length);",
+                  "  pm.expect(body.items.every(function (issue) {",
+                  "    const searchableText = `${issue.title}\\n${issue.description}`.toLocaleLowerCase(\"ru\");",
+                  "    return issue.status === \"open\" && searchableText.includes(\"кнопка\");",
+                  "  })).to.be.true;",
+                  "",
+                  "  const issue = body.items.find(function (item) { return item.id === issueId; });",
+                  "  pm.expect(issue, \"Созданный дефект отсутствует в списке\").to.be.an(\"object\");",
+                  "  pm.expect(issue).to.include({ severity: \"high\", status: \"open\" });",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Demo-Workspace-Id",
+                "value": "{{workspaceId}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/issues?status=open&q=кнопка"
+          },
+          "response": []
+        },
+        {
+          "name": "03 — Получить конкретный дефект",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Код ответа — 200\", function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Тело содержит запрошенный дефект\", function () {",
+                  "  const issue = pm.response.json();",
+                  "  pm.expect(issue).to.include({",
+                  "    id: pm.collectionVariables.get(\"issueId\"),",
+                  "    title: \"Кнопка отправки неактивна\",",
+                  "    description: \"После заполнения обязательных полей кнопка остаётся неактивной.\",",
+                  "    severity: \"high\",",
+                  "    status: \"open\",",
+                  "    createdAt: pm.collectionVariables.get(\"smokeCreatedAt\"),",
+                  "    updatedAt: pm.collectionVariables.get(\"smokeUpdatedAt\")",
+                  "  });",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Demo-Workspace-Id",
+                "value": "{{workspaceId}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/issues/{{issueId}}"
+          },
+          "response": []
+        },
+        {
+          "name": "04 — Редактировать дефект",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Код ответа — 200\", function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Изменены только переданные поля\", function () {",
+                  "  const issue = pm.response.json();",
+                  "  const previousUpdatedAt = pm.collectionVariables.get(\"smokeUpdatedAt\");",
+                  "  pm.expect(issue).to.include({",
+                  "    id: pm.collectionVariables.get(\"issueId\"),",
+                  "    title: \"Кнопка отправки неактивна\",",
+                  "    description: \"После заполнения обязательных полей кнопка остаётся неактивной.\",",
+                  "    severity: \"critical\",",
+                  "    status: \"in_progress\",",
+                  "    createdAt: pm.collectionVariables.get(\"smokeCreatedAt\")",
+                  "  });",
+                  "  pm.expect(Date.parse(issue.updatedAt)).to.be.above(Date.parse(previousUpdatedAt));",
+                  "  pm.collectionVariables.set(\"smokeUpdatedAt\", issue.updatedAt);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "X-Demo-Workspace-Id",
+                "value": "{{workspaceId}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"in_progress\",\n  \"severity\": \"critical\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/api/issues/{{issueId}}"
+          },
+          "response": []
+        },
+        {
+          "name": "05 — Удалить дефект",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set(\"deletedIssueId\", pm.collectionVariables.get(\"issueId\") || \"\");",
+                  "pm.collectionVariables.set(\"deletedWorkspaceId\", pm.collectionVariables.get(\"workspaceId\") || \"\");"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Код ответа — 204\", function () {",
+                  "  pm.response.to.have.status(204);",
+                  "});",
+                  "",
+                  "pm.test(\"Тело ответа пустое\", function () {",
+                  "  pm.expect(pm.response.text()).to.eql(\"\");",
+                  "});",
+                  "",
+                  "pm.collectionVariables.unset(\"smokeCreatedAt\");",
+                  "pm.collectionVariables.unset(\"smokeUpdatedAt\");",
+                  "pm.collectionVariables.unset(\"issueId\");",
+                  "pm.collectionVariables.unset(\"workspaceId\");"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "X-Demo-Workspace-Id",
+                "value": "{{workspaceId}}"
+              }
+            ],
+            "description": "Удаляет smoke-фикстуру. Основные {{issueId}} и {{workspaceId}} очищаются последними строками post-response.",
+            "url": "{{baseUrl}}/api/issues/{{issueId}}"
+          },
+          "response": []
+        },
+        {
+          "name": "06 — Проверить удаление по ID",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Код ответа — 404\", function () {",
+                  "  pm.response.to.have.status(404);",
+                  "});",
+                  "",
+                  "pm.test(\"Код ошибки — NOT_FOUND\", function () {",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.error.code).to.eql(\"NOT_FOUND\");",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Demo-Workspace-Id",
+                "value": "{{deletedWorkspaceId}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/issues/{{deletedIssueId}}"
+          },
+          "response": []
+        },
+        {
+          "name": "07 — Проверить пустой список и завершить teardown",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Код ответа — 200\", function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Удалённый дефект отсутствует в списке\", function () {",
+                  "  const body = pm.response.json();",
+                  "  const deletedIssueId = pm.collectionVariables.get(\"deletedIssueId\");",
+                  "  pm.expect(body.total).to.eql(body.items.length);",
+                  "  pm.expect(body.items.some(function (issue) { return issue.id === deletedIssueId; })).to.be.false;",
+                  "  pm.expect(body).to.eql({ items: [], total: 0 });",
+                  "});",
+                  "",
+                  "pm.collectionVariables.unset(\"deletedIssueId\");",
+                  "pm.collectionVariables.unset(\"deletedWorkspaceId\");"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Demo-Workspace-Id",
+                "value": "{{deletedWorkspaceId}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/issues"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "02 — Validation",
+      "description": "Data-driven проверки тела POST/PATCH и query-параметров. Каждая вложенная папка запускается отдельно со своим data-файлом.",
+      "event": [],
+      "item": [
+        {
+          "name": "02.1 — POST body (data-driven)",
+          "description": "Запускайте с tests/api/data/post-validation-cases.json.",
+          "event": [],
+          "item": [
+            {
+              "name": "01 — Проверить невалидное тело",
+              "event": [
+                {
+                  "listen": "prerequest",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.collectionVariables.set(\"postValidationWorkspaceId\", pm.variables.replaceIn(\"{{$guid}}\"));",
+                      "const dataBody = pm.iterationData.get(\"requestBody\");",
+                      "const fallbackBody = {\"description\":\"Достаточно длинное описание\",\"severity\":\"high\"};",
+                      "pm.variables.set(\"requestBody\", typeof dataBody === \"string\" ? dataBody : JSON.stringify(dataBody === undefined ? fallbackBody : dataBody));",
+                      "pm.variables.set(\"caseName\", pm.iterationData.get(\"caseName\") || \"Ручной fallback-сценарий\");",
+                      "pm.variables.set(\"expectedStatus\", String(pm.iterationData.get(\"expectedStatus\") || 422));",
+                      "pm.variables.set(\"expectedCode\", pm.iterationData.get(\"expectedCode\") || \"VALIDATION_ERROR\");",
+                      "const fallbackFields = [\"title\"];",
+                      "const dataFields = pm.iterationData.get(\"expectedFields\");",
+                      "pm.variables.set(\"expectedFields\", JSON.stringify(Array.isArray(dataFields) ? dataFields : fallbackFields));",
+                      "pm.collectionVariables.set(\"postCleanupIssueId\", pm.variables.replaceIn(\"{{$guid}}\"));",
+                      "pm.collectionVariables.set(\"postUnexpectedlyCreated\", \"false\");"
+                    ]
+                  }
+                },
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "const expectedStatus = Number(pm.variables.get(\"expectedStatus\"));",
+                      "const expectedCode = pm.variables.get(\"expectedCode\");",
+                      "const expectedFields = JSON.parse(pm.variables.get(\"expectedFields\"));",
+                      "const caseName = pm.variables.get(\"caseName\");",
+                      "",
+                      "pm.test(`Код ответа — ${expectedStatus}: ${caseName}`, function () {",
+                      "  pm.expect(pm.response.code).to.eql(expectedStatus);",
+                      "});",
+                      "",
+                      "pm.test(`Ошибка содержит ${expectedCode} и ожидаемые поля`, function () {",
+                      "  const body = pm.response.json();",
+                      "  pm.expect(body.error.code).to.eql(expectedCode);",
+                      "  expectedFields.forEach(function (field) {",
+                      "    pm.expect(body.error.fields).to.have.property(field);",
+                      "  });",
+                      "});",
+                      "",
+                      "if (pm.response.code === 201) {",
+                      "  try {",
+                      "    const issue = pm.response.json();",
+                      "    if (issue.id) {",
+                      "      pm.collectionVariables.set(\"postCleanupIssueId\", issue.id);",
+                      "      pm.collectionVariables.set(\"postUnexpectedlyCreated\", \"true\");",
+                      "    }",
+                      "  } catch {",
+                      "    // Ожидаемый status-test уже зафиксировал ошибку контракта.",
+                      "  }",
+                      "}"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "auth": {
+                  "type": "noauth"
+                },
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "X-Demo-Workspace-Id",
+                    "value": "{{postValidationWorkspaceId}}"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{{requestBody}}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": "{{baseUrl}}/api/issues"
+              },
+              "response": []
+            },
+            {
+              "name": "02 — Teardown возможной записи",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "const issueWasCreated = pm.collectionVariables.get(\"postUnexpectedlyCreated\") === \"true\";",
+                      "",
+                      "pm.test(\"Teardown не оставляет тестовую запись\", function () {",
+                      "  pm.expect(pm.response.code).to.eql(issueWasCreated ? 204 : 404);",
+                      "  if (!issueWasCreated) {",
+                      "    pm.expect(pm.response.json().error.code).to.eql(\"NOT_FOUND\");",
+                      "  }",
+                      "});",
+                      "",
+                      "pm.collectionVariables.unset(\"postCleanupIssueId\");",
+                      "pm.collectionVariables.unset(\"postUnexpectedlyCreated\");",
+                      "pm.collectionVariables.unset(\"postValidationWorkspaceId\");"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "auth": {
+                  "type": "noauth"
+                },
+                "method": "DELETE",
+                "header": [
+                  {
+                    "key": "X-Demo-Workspace-Id",
+                    "value": "{{postValidationWorkspaceId}}"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/issues/{{postCleanupIssueId}}"
+              },
+              "response": []
+            }
+          ]
+        },
+        {
+          "name": "02.2 — PATCH body (data-driven)",
+          "description": "Запускайте с tests/api/data/patch-validation-cases.json. На каждой итерации создаётся и удаляется отдельная фикстура.",
+          "event": [],
+          "item": [
+            {
+              "name": "01 — Setup: создать дефект",
+              "event": [
+                {
+                  "listen": "prerequest",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.collectionVariables.set(\"patchValidationWorkspaceId\", pm.variables.replaceIn(\"{{$guid}}\"));",
+                      "pm.collectionVariables.unset(\"patchValidationIssueId\");"
+                    ]
+                  }
+                },
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Setup возвращает 201\", function () {",
+                      "  pm.response.to.have.status(201);",
+                      "});",
+                      "",
+                      "if (pm.response.code === 201) {",
+                      "  pm.collectionVariables.set(\"patchValidationIssueId\", pm.response.json().id);",
+                      "}"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "auth": {
+                  "type": "noauth"
+                },
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "X-Demo-Workspace-Id",
+                    "value": "{{patchValidationWorkspaceId}}"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"title\": \"Фикстура для PATCH\",\n  \"description\": \"Описание фикстуры для негативных PATCH-проверок.\",\n  \"severity\": \"medium\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": "{{baseUrl}}/api/issues"
+              },
+              "response": []
+            },
+            {
+              "name": "02 — Проверить невалидный PATCH",
+              "event": [
+                {
+                  "listen": "prerequest",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "const dataBody = pm.iterationData.get(\"requestBody\");",
+                      "const fallbackBody = {};",
+                      "pm.variables.set(\"requestBody\", typeof dataBody === \"string\" ? dataBody : JSON.stringify(dataBody === undefined ? fallbackBody : dataBody));",
+                      "pm.variables.set(\"caseName\", pm.iterationData.get(\"caseName\") || \"Ручной fallback-сценарий\");",
+                      "pm.variables.set(\"expectedStatus\", String(pm.iterationData.get(\"expectedStatus\") || 422));",
+                      "pm.variables.set(\"expectedCode\", pm.iterationData.get(\"expectedCode\") || \"VALIDATION_ERROR\");",
+                      "const fallbackFields = [\"_body\"];",
+                      "const dataFields = pm.iterationData.get(\"expectedFields\");",
+                      "pm.variables.set(\"expectedFields\", JSON.stringify(Array.isArray(dataFields) ? dataFields : fallbackFields));"
+                    ]
+                  }
+                },
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "const expectedStatus = Number(pm.variables.get(\"expectedStatus\"));",
+                      "const expectedCode = pm.variables.get(\"expectedCode\");",
+                      "const expectedFields = JSON.parse(pm.variables.get(\"expectedFields\"));",
+                      "const caseName = pm.variables.get(\"caseName\");",
+                      "",
+                      "pm.test(`Код ответа — ${expectedStatus}: ${caseName}`, function () {",
+                      "  pm.expect(pm.response.code).to.eql(expectedStatus);",
+                      "});",
+                      "",
+                      "pm.test(`Ошибка содержит ${expectedCode} и ожидаемые поля`, function () {",
+                      "  const body = pm.response.json();",
+                      "  pm.expect(body.error.code).to.eql(expectedCode);",
+                      "  expectedFields.forEach(function (field) {",
+                      "    pm.expect(body.error.fields).to.have.property(field);",
+                      "  });",
+                      "});"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "auth": {
+                  "type": "noauth"
+                },
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "X-Demo-Workspace-Id",
+                    "value": "{{patchValidationWorkspaceId}}"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{{requestBody}}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": "{{baseUrl}}/api/issues/{{patchValidationIssueId}}"
+              },
+              "response": []
+            },
+            {
+              "name": "03 — Teardown: удалить фикстуру",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Teardown возвращает 204\", function () {",
+                      "  pm.response.to.have.status(204);",
+                      "});",
+                      "",
+                      "pm.collectionVariables.unset(\"patchValidationIssueId\");",
+                      "pm.collectionVariables.unset(\"patchValidationWorkspaceId\");"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "auth": {
+                  "type": "noauth"
+                },
+                "method": "DELETE",
+                "header": [
+                  {
+                    "key": "X-Demo-Workspace-Id",
+                    "value": "{{patchValidationWorkspaceId}}"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/issues/{{patchValidationIssueId}}"
+              },
+              "response": []
+            }
+          ]
+        },
+        {
+          "name": "02.3 — Query (data-driven)",
+          "description": "Запускайте с tests/api/data/query-validation-cases.json.",
+          "event": [],
+          "item": [
+            {
+              "name": "01 — Проверить невалидные query-параметры",
+              "event": [
+                {
+                  "listen": "prerequest",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.collectionVariables.set(\"queryValidationWorkspaceId\", pm.variables.replaceIn(\"{{$guid}}\"));",
+                      "const queryString = pm.iterationData.get(\"queryString\") || \"status=closed\";",
+                      "pm.variables.set(\"queryString\", queryString);",
+                      "pm.request.url.query.clear();",
+                      "queryString.split(\"&\").forEach(function (pair) {",
+                      "  const separatorIndex = pair.indexOf(\"=\");",
+                      "  const key = separatorIndex === -1 ? pair : pair.slice(0, separatorIndex);",
+                      "  const value = separatorIndex === -1 ? \"\" : pair.slice(separatorIndex + 1);",
+                      "  pm.request.url.query.add({ key, value });",
+                      "});",
+                      "pm.variables.set(\"caseName\", pm.iterationData.get(\"caseName\") || \"Невалидный status\");",
+                      "pm.variables.set(\"expectedStatus\", String(pm.iterationData.get(\"expectedStatus\") || 400));",
+                      "pm.variables.set(\"expectedCode\", pm.iterationData.get(\"expectedCode\") || \"INVALID_QUERY\");",
+                      "const dataFields = pm.iterationData.get(\"expectedFields\");",
+                      "pm.variables.set(\"expectedFields\", JSON.stringify(Array.isArray(dataFields) ? dataFields : [\"status\"]));"
+                    ]
+                  }
+                },
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "const expectedStatus = Number(pm.variables.get(\"expectedStatus\"));",
+                      "const expectedCode = pm.variables.get(\"expectedCode\");",
+                      "const expectedFields = JSON.parse(pm.variables.get(\"expectedFields\"));",
+                      "const caseName = pm.variables.get(\"caseName\");",
+                      "",
+                      "pm.test(`Код ответа — ${expectedStatus}: ${caseName}`, function () {",
+                      "  pm.expect(pm.response.code).to.eql(expectedStatus);",
+                      "});",
+                      "",
+                      "pm.test(`Ошибка содержит ${expectedCode} и ожидаемые поля`, function () {",
+                      "  const body = pm.response.json();",
+                      "  pm.expect(body.error.code).to.eql(expectedCode);",
+                      "  expectedFields.forEach(function (field) {",
+                      "    pm.expect(body.error.fields).to.have.property(field);",
+                      "  });",
+                      "});",
+                      "",
+                      "pm.collectionVariables.unset(\"queryValidationWorkspaceId\");"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "auth": {
+                  "type": "noauth"
+                },
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "X-Demo-Workspace-Id",
+                    "value": "{{queryValidationWorkspaceId}}"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/issues"
+              },
+              "response": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "03 — Protocol and contract",
+      "description": "Проверки workspace/id, JSON, Content-Type, методов, Allow и единого формата ошибок.",
+      "event": [],
+      "item": [
+        {
+          "name": "01 — Отсутствует workspace header",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set(\"contractWorkspaceId\", pm.variables.replaceIn(\"{{$guid}}\"));",
+                  "pm.collectionVariables.set(\"contractMissingIssueId\", pm.variables.replaceIn(\"{{$guid}}\"));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Код ответа — 400\", function () {",
+                  "  pm.response.to.have.status(400);",
+                  "});",
+                  "",
+                  "pm.test(\"Код ошибки — INVALID_WORKSPACE\", function () {",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.error.code).to.eql(\"INVALID_WORKSPACE\");",
+                  "  pm.expect(body.error.fields).to.have.property(\"X-Demo-Workspace-Id\");",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/issues"
+          },
+          "response": []
+        },
+        {
+          "name": "02 — Некорректный workspace ID",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Код ответа — 400\", function () {",
+                  "  pm.response.to.have.status(400);",
+                  "});",
+                  "",
+                  "pm.test(\"Код ошибки — INVALID_WORKSPACE\", function () {",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.error.code).to.eql(\"INVALID_WORKSPACE\");",
+                  "  pm.expect(body.error.fields).to.have.property(\"X-Demo-Workspace-Id\");",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Demo-Workspace-Id",
+                "value": "not-a-uuid"
+              }
+            ],
+            "url": "{{baseUrl}}/api/issues"
+          },
+          "response": []
+        },
+        {
+          "name": "03 — Некорректный issue ID",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Код ответа — 400\", function () {",
+                  "  pm.response.to.have.status(400);",
+                  "});",
+                  "",
+                  "pm.test(\"Код ошибки — INVALID_ID\", function () {",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.error.code).to.eql(\"INVALID_ID\");",
+                  "  pm.expect(body.error.fields).to.have.property(\"id\");",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Demo-Workspace-Id",
+                "value": "{{contractWorkspaceId}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/issues/not-a-uuid"
+          },
+          "response": []
+        },
+        {
+          "name": "04 — Невалидный JSON",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Код ответа — 400\", function () {",
+                  "  pm.response.to.have.status(400);",
+                  "});",
+                  "",
+                  "pm.test(\"Код ошибки — MALFORMED_JSON\", function () {",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.error.code).to.eql(\"MALFORMED_JSON\");",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Demo-Workspace-Id",
+                "value": "{{contractWorkspaceId}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"title\":",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/api/issues"
+          },
+          "response": []
+        },
+        {
+          "name": "05 — Неподдерживаемый Content-Type",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Код ответа — 415\", function () {",
+                  "  pm.response.to.have.status(415);",
+                  "});",
+                  "",
+                  "pm.test(\"Код ошибки — UNSUPPORTED_MEDIA_TYPE\", function () {",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.error.code).to.eql(\"UNSUPPORTED_MEDIA_TYPE\");",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Demo-Workspace-Id",
+                "value": "{{contractWorkspaceId}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "text/plain"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"title\":\"Корректный заголовок\",\"description\":\"Корректное описание тела запроса.\",\"severity\":\"low\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/api/issues"
+          },
+          "response": []
+        },
+        {
+          "name": "06 — Неподдерживаемый метод коллекции",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Код ответа — 405\", function () {",
+                  "  pm.response.to.have.status(405);",
+                  "});",
+                  "",
+                  "pm.test(\"Код ошибки — METHOD_NOT_ALLOWED\", function () {",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.error.code).to.eql(\"METHOD_NOT_ALLOWED\");",
+                  "});",
+                  "",
+                  "pm.test(\"Заголовок Allow — GET, POST\", function () {",
+                  "  pm.expect(pm.response.headers.get(\"Allow\")).to.eql(\"GET, POST\");",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "PUT",
+            "header": [],
+            "url": "{{baseUrl}}/api/issues"
+          },
+          "response": []
+        },
+        {
+          "name": "07 — Неподдерживаемый метод item-ресурса",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Код ответа — 405\", function () {",
+                  "  pm.response.to.have.status(405);",
+                  "});",
+                  "",
+                  "pm.test(\"Код ошибки — METHOD_NOT_ALLOWED\", function () {",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.error.code).to.eql(\"METHOD_NOT_ALLOWED\");",
+                  "});",
+                  "",
+                  "pm.test(\"Заголовок Allow — GET, PATCH, DELETE\", function () {",
+                  "  pm.expect(pm.response.headers.get(\"Allow\")).to.eql(\"GET, PATCH, DELETE\");",
+                  "});",
+                  "",
+                  "pm.collectionVariables.unset(\"contractMissingIssueId\");",
+                  "pm.collectionVariables.unset(\"contractWorkspaceId\");"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "PUT",
+            "header": [],
+            "url": "{{baseUrl}}/api/issues/{{contractMissingIssueId}}"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "04 — Workspace isolation",
+      "description": "Два независимых workspace не видят и не изменяют записи друг друга; обе фикстуры удаляются в конце.",
+      "event": [],
+      "item": [
+        {
+          "name": "01 — Setup: создать дефект в workspace A",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const workspaceAId = pm.variables.replaceIn(\"{{$guid}}\");",
+                  "let workspaceBId = pm.variables.replaceIn(\"{{$guid}}\");",
+                  "while (workspaceBId === workspaceAId) {",
+                  "  workspaceBId = pm.variables.replaceIn(\"{{$guid}}\");",
+                  "}",
+                  "pm.collectionVariables.set(\"workspaceAId\", workspaceAId);",
+                  "pm.collectionVariables.set(\"workspaceBId\", workspaceBId);",
+                  "pm.collectionVariables.unset(\"issueAId\");",
+                  "pm.collectionVariables.unset(\"issueBId\");"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Workspace A создаёт дефект\", function () {",
+                  "  pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "if (pm.response.code === 201) {",
+                  "  pm.collectionVariables.set(\"issueAId\", pm.response.json().id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Demo-Workspace-Id",
+                "value": "{{workspaceAId}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Дефект workspace A\",\n  \"description\": \"Запись должна быть доступна только внутри workspace A.\",\n  \"severity\": \"high\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/api/issues"
+          },
+          "response": []
+        },
+        {
+          "name": "02 — Setup: создать дефект в workspace B",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Workspace B создаёт дефект\", function () {",
+                  "  pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "if (pm.response.code === 201) {",
+                  "  pm.collectionVariables.set(\"issueBId\", pm.response.json().id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Demo-Workspace-Id",
+                "value": "{{workspaceBId}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Дефект workspace B\",\n  \"description\": \"Запись должна быть доступна только внутри workspace B.\",\n  \"severity\": \"medium\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/api/issues"
+          },
+          "response": []
+        },
+        {
+          "name": "03 — Список workspace A изолирован",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Список A содержит только дефект A\", function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.total).to.eql(1);",
+                  "  pm.expect(body.items.map(function (issue) { return issue.id; })).to.eql([",
+                  "    pm.collectionVariables.get(\"issueAId\")",
+                  "  ]);",
+                  "  pm.expect(body.items[0].title).to.eql(\"Дефект workspace A\");",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Demo-Workspace-Id",
+                "value": "{{workspaceAId}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/issues"
+          },
+          "response": []
+        },
+        {
+          "name": "04 — Список workspace B изолирован",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Список B содержит только дефект B\", function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.total).to.eql(1);",
+                  "  pm.expect(body.items.map(function (issue) { return issue.id; })).to.eql([",
+                  "    pm.collectionVariables.get(\"issueBId\")",
+                  "  ]);",
+                  "  pm.expect(body.items[0].title).to.eql(\"Дефект workspace B\");",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Demo-Workspace-Id",
+                "value": "{{workspaceBId}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/issues"
+          },
+          "response": []
+        },
+        {
+          "name": "05 — Workspace B не читает дефект A",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Код ответа — 404\", function () {",
+                  "  pm.response.to.have.status(404);",
+                  "});",
+                  "",
+                  "pm.test(\"Код ошибки — NOT_FOUND\", function () {",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.error.code).to.eql(\"NOT_FOUND\");",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Demo-Workspace-Id",
+                "value": "{{workspaceBId}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/issues/{{issueAId}}"
+          },
+          "response": []
+        },
+        {
+          "name": "06 — Workspace B не редактирует дефект A",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Код ответа — 404\", function () {",
+                  "  pm.response.to.have.status(404);",
+                  "});",
+                  "",
+                  "pm.test(\"Код ошибки — NOT_FOUND\", function () {",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.error.code).to.eql(\"NOT_FOUND\");",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "X-Demo-Workspace-Id",
+                "value": "{{workspaceBId}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"status\":\"resolved\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/api/issues/{{issueAId}}"
+          },
+          "response": []
+        },
+        {
+          "name": "07 — Workspace B не удаляет дефект A",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Код ответа — 404\", function () {",
+                  "  pm.response.to.have.status(404);",
+                  "});",
+                  "",
+                  "pm.test(\"Код ошибки — NOT_FOUND\", function () {",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.error.code).to.eql(\"NOT_FOUND\");",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "X-Demo-Workspace-Id",
+                "value": "{{workspaceBId}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/issues/{{issueAId}}"
+          },
+          "response": []
+        },
+        {
+          "name": "08 — Дефект A сохранился в workspace A",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Дефект A не изменён межпространственными запросами\", function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const issue = pm.response.json();",
+                  "  pm.expect(issue).to.include({",
+                  "    id: pm.collectionVariables.get(\"issueAId\"),",
+                  "    title: \"Дефект workspace A\",",
+                  "    severity: \"high\",",
+                  "    status: \"open\"",
+                  "  });",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Demo-Workspace-Id",
+                "value": "{{workspaceAId}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/issues/{{issueAId}}"
+          },
+          "response": []
+        },
+        {
+          "name": "09 — Teardown: удалить дефект A",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Дефект A удалён\", function () {",
+                  "  pm.response.to.have.status(204);",
+                  "});",
+                  "",
+                  "pm.collectionVariables.unset(\"issueAId\");"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "X-Demo-Workspace-Id",
+                "value": "{{workspaceAId}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/issues/{{issueAId}}"
+          },
+          "response": []
+        },
+        {
+          "name": "10 — Teardown: удалить дефект B",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Дефект B удалён\", function () {",
+                  "  pm.response.to.have.status(204);",
+                  "});",
+                  "",
+                  "pm.collectionVariables.unset(\"issueBId\");",
+                  "pm.collectionVariables.unset(\"workspaceAId\");",
+                  "pm.collectionVariables.unset(\"workspaceBId\");"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "X-Demo-Workspace-Id",
+                "value": "{{workspaceBId}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/issues/{{issueBId}}"
+          },
+          "response": []
+        }
+      ]
+    }
+  ]
+}

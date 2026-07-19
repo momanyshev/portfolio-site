@@ -1,0 +1,497 @@
+<!doctype html>
+<html lang="ru" data-theme="dark">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>QA Lab — Трекер дефектов</title>
+    <meta
+      name="description"
+      content="QA Lab — демонстрационный CRUD-стенд для работы с REST API."
+    >
+    <link rel="icon" href="favicon.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="api-lab.css">
+  </head>
+  <body class="lab-page">
+    <header class="site-header" aria-label="Навигация QA Lab">
+      <a class="brand" href="index.html" aria-label="Вернуться к портфолио">Максим</a>
+      <nav class="site-nav" aria-label="Разделы QA Lab">
+        <a href="index.html">Портфолио</a>
+        <a href="#issues">Дефекты</a>
+        <a href="#api-inspector">API-запрос</a>
+      </nav>
+      <button
+        class="theme-toggle"
+        type="button"
+        data-theme-toggle
+        aria-label="Переключить тему"
+        aria-pressed="false"
+        title="Переключить тему"
+      >
+        <span class="theme-toggle-icon" aria-hidden="true">☾</span>
+      </button>
+    </header>
+
+    <main class="lab-main">
+      <section class="lab-hero" aria-labelledby="lab-title">
+        <div class="lab-hero-copy">
+          <p class="eyebrow">QA Lab / REST API</p>
+          <h1 id="lab-title">Трекер дефектов</h1>
+          <p class="lab-lead">
+            Создавайте, просматривайте, редактируйте и удаляйте дефекты через
+            реальный HTTP API. Интерфейс показывает параметры каждого запроса.
+          </p>
+          <div class="lab-hero-actions">
+            <button class="button primary" type="button" data-open-create>
+              Создать дефект
+            </button>
+            <a class="button secondary" href="#api-inspector">
+              Последний API-запрос
+            </a>
+          </div>
+        </div>
+
+        <aside class="workspace-card" aria-labelledby="workspace-title">
+          <p class="eyebrow" id="workspace-title">Демо-пространство</p>
+          <p>
+            Записи изолированы от других посетителей и хранятся отдельно для
+            этого браузера.
+          </p>
+          <dl class="workspace-facts">
+            <div>
+              <dt>Workspace</dt>
+              <dd><code data-workspace-id>создаётся…</code></dd>
+            </div>
+            <div>
+              <dt>Лимит</dt>
+              <dd>50 дефектов</dd>
+            </div>
+            <div>
+              <dt>Хранение</dt>
+              <dd>30 дней после изменения</dd>
+            </div>
+          </dl>
+        </aside>
+      </section>
+
+      <section class="lab-content" aria-labelledby="issues-title">
+        <p
+          class="operation-status"
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+          data-operation-status
+          hidden
+        ></p>
+
+        <div class="lab-alert" role="alert" data-load-error hidden>
+          <div>
+            <strong>Не удалось загрузить дефекты</strong>
+            <p data-load-error-message></p>
+          </div>
+          <button class="button secondary" type="button" data-retry-load>
+            Повторить
+          </button>
+        </div>
+
+        <form
+          class="filter-bar"
+          role="search"
+          aria-label="Поиск и фильтры дефектов"
+          data-filter-form
+        >
+          <div class="form-field filter-search">
+            <label for="filter-query">Поиск</label>
+            <input
+              id="filter-query"
+              name="q"
+              type="search"
+              maxlength="120"
+              placeholder="Название или описание"
+              autocomplete="off"
+            >
+          </div>
+          <div class="form-field">
+            <label for="filter-status">Статус</label>
+            <select id="filter-status" name="status">
+              <option value="">Все статусы</option>
+              <option value="open">Открыт</option>
+              <option value="in_progress">В работе</option>
+              <option value="resolved">Решён</option>
+            </select>
+          </div>
+          <div class="form-field">
+            <label for="filter-severity">Критичность</label>
+            <select id="filter-severity" name="severity">
+              <option value="">Любая</option>
+              <option value="low">Низкая</option>
+              <option value="medium">Средняя</option>
+              <option value="high">Высокая</option>
+              <option value="critical">Критическая</option>
+            </select>
+          </div>
+          <button class="button secondary filter-reset" type="reset">
+            Сбросить
+          </button>
+        </form>
+
+        <div class="lab-grid">
+          <section
+            class="issues-panel"
+            id="issues"
+            aria-labelledby="issues-title"
+            aria-busy="true"
+            data-issues-panel
+          >
+            <header class="panel-heading">
+              <div>
+                <p class="eyebrow">Список</p>
+                <h2 id="issues-title" tabindex="-1">Дефекты</h2>
+              </div>
+              <output class="result-count" data-result-count aria-live="polite">
+                Загрузка…
+              </output>
+            </header>
+
+            <div class="loading-state" role="status" data-loading-state>
+              <span class="spinner" aria-hidden="true"></span>
+              <span>Загружаем дефекты…</span>
+            </div>
+
+            <div class="empty-state" data-empty-state hidden>
+              <h3 data-empty-title>Дефектов пока нет</h3>
+              <p data-empty-description>
+                Создайте первую запись, чтобы пройти полный CRUD-сценарий.
+              </p>
+              <div class="empty-actions">
+                <button class="button primary" type="button" data-open-create>
+                  Создать дефект
+                </button>
+                <button class="button secondary" type="button" data-reset-filters hidden>
+                  Сбросить фильтры
+                </button>
+              </div>
+            </div>
+
+            <ul
+              class="issue-list"
+              aria-label="Список дефектов"
+              data-issue-list
+              hidden
+            ></ul>
+          </section>
+
+          <aside
+            class="api-inspector"
+            id="api-inspector"
+            aria-labelledby="api-inspector-title"
+          >
+            <header class="panel-heading">
+              <div>
+                <p class="eyebrow">HTTP</p>
+                <h2 id="api-inspector-title">Последний API-запрос</h2>
+              </div>
+            </header>
+
+            <p class="api-inspector-empty" data-api-empty>
+              Здесь появятся параметры первого выполненного запроса.
+            </p>
+
+            <div data-api-details hidden>
+              <dl class="request-meta">
+                <div>
+                  <dt>Метод</dt>
+                  <dd><code data-request-method></code></dd>
+                </div>
+                <div>
+                  <dt>URL</dt>
+                  <dd><code data-request-url></code></dd>
+                </div>
+                <div>
+                  <dt>Статус</dt>
+                  <dd data-response-status></dd>
+                </div>
+                <div>
+                  <dt>Время</dt>
+                  <dd data-request-duration></dd>
+                </div>
+              </dl>
+
+              <details data-request-body-section hidden>
+                <summary>Тело запроса</summary>
+                <pre class="api-json"><code data-request-json></code></pre>
+              </details>
+              <details data-response-body-section hidden>
+                <summary>Тело ответа</summary>
+                <pre class="api-json"><code data-response-json></code></pre>
+              </details>
+            </div>
+          </aside>
+        </div>
+      </section>
+    </main>
+
+    <p
+      class="visually-hidden"
+      role="status"
+      aria-live="polite"
+      aria-atomic="true"
+      data-announcer
+    ></p>
+
+    <template id="issue-card-template">
+      <li class="issue-list-item">
+        <article class="issue-card">
+          <div class="issue-card-header">
+            <div class="issue-badges">
+              <span class="issue-badge" data-issue-severity></span>
+              <span class="issue-badge" data-issue-status></span>
+            </div>
+            <time class="issue-updated" data-issue-updated></time>
+          </div>
+          <h3 data-issue-title></h3>
+          <p class="issue-description-preview" data-issue-description></p>
+          <div class="issue-actions">
+            <button class="button secondary" type="button" data-action="read">
+              Открыть
+            </button>
+            <button class="button secondary" type="button" data-action="edit">
+              Редактировать
+            </button>
+            <button class="button danger" type="button" data-action="delete">
+              Удалить
+            </button>
+          </div>
+        </article>
+      </li>
+    </template>
+
+    <dialog
+      class="lab-dialog"
+      data-details-dialog
+      aria-labelledby="details-dialog-title"
+    >
+      <div class="dialog-surface">
+        <header class="dialog-header">
+          <div>
+            <p class="eyebrow">Карточка дефекта</p>
+            <h2 id="details-dialog-title" data-details-title></h2>
+          </div>
+          <button
+            class="icon-button"
+            type="button"
+            aria-label="Закрыть карточку"
+            data-close-details
+          >
+            ×
+          </button>
+        </header>
+        <div class="details-badges">
+          <span class="issue-badge" data-details-severity></span>
+          <span class="issue-badge" data-details-status></span>
+        </div>
+        <p class="details-description" data-details-description></p>
+        <dl class="details-meta">
+          <div>
+            <dt>ID</dt>
+            <dd><code data-details-id></code></dd>
+          </div>
+          <div>
+            <dt>Создан</dt>
+            <dd><time data-details-created></time></dd>
+          </div>
+          <div>
+            <dt>Обновлён</dt>
+            <dd><time data-details-updated></time></dd>
+          </div>
+        </dl>
+        <footer class="dialog-actions">
+          <button class="button secondary" type="button" data-details-edit>
+            Редактировать
+          </button>
+          <button class="button danger" type="button" data-details-delete>
+            Удалить
+          </button>
+          <button class="button primary" type="button" data-close-details>
+            Закрыть
+          </button>
+        </footer>
+      </div>
+    </dialog>
+
+    <dialog
+      class="lab-dialog"
+      data-issue-dialog
+      aria-labelledby="issue-dialog-title"
+    >
+      <div class="dialog-surface">
+        <header class="dialog-header">
+          <div>
+            <p class="eyebrow" data-dialog-eyebrow>Новый дефект</p>
+            <h2 id="issue-dialog-title" data-dialog-title>Создать дефект</h2>
+          </div>
+          <button
+            class="icon-button"
+            type="button"
+            aria-label="Закрыть форму"
+            data-close-issue-dialog
+          >
+            ×
+          </button>
+        </header>
+
+        <form class="issue-form" data-issue-form novalidate>
+          <p class="form-error" role="alert" data-form-error hidden></p>
+
+          <div class="form-field">
+            <label for="issue-title">Название</label>
+            <input
+              id="issue-title"
+              name="title"
+              type="text"
+              required
+              minlength="3"
+              maxlength="120"
+              aria-describedby="issue-title-hint issue-title-error"
+            >
+            <small id="issue-title-hint">От 3 до 120 символов после trim.</small>
+            <p
+              class="field-error"
+              id="issue-title-error"
+              data-field-error="title"
+              hidden
+            ></p>
+          </div>
+
+          <div class="form-field">
+            <label for="issue-description">Описание</label>
+            <textarea
+              id="issue-description"
+              name="description"
+              required
+              minlength="10"
+              maxlength="2000"
+              rows="7"
+              aria-describedby="issue-description-hint issue-description-error"
+            ></textarea>
+            <div class="field-meta">
+              <small id="issue-description-hint">От 10 до 2000 символов после trim.</small>
+              <output for="issue-description" data-description-count>0 / 2000</output>
+            </div>
+            <p
+              class="field-error"
+              id="issue-description-error"
+              data-field-error="description"
+              hidden
+            ></p>
+          </div>
+
+          <div class="form-row">
+            <div class="form-field">
+              <label for="issue-severity">Критичность</label>
+              <select
+                id="issue-severity"
+                name="severity"
+                required
+                aria-describedby="issue-severity-error"
+              >
+                <option value="low">Низкая</option>
+                <option value="medium" selected>Средняя</option>
+                <option value="high">Высокая</option>
+                <option value="critical">Критическая</option>
+              </select>
+              <p
+                class="field-error"
+                id="issue-severity-error"
+                data-field-error="severity"
+                hidden
+              ></p>
+            </div>
+
+            <div class="form-field">
+              <label for="issue-status">Статус</label>
+              <select
+                id="issue-status"
+                name="status"
+                required
+                aria-describedby="issue-status-error"
+              >
+                <option value="open">Открыт</option>
+                <option value="in_progress">В работе</option>
+                <option value="resolved">Решён</option>
+              </select>
+              <p
+                class="field-error"
+                id="issue-status-error"
+                data-field-error="status"
+                hidden
+              ></p>
+            </div>
+          </div>
+
+          <footer class="dialog-actions">
+            <button class="button secondary" type="button" data-close-issue-dialog>
+              Отмена
+            </button>
+            <button class="button primary" type="submit" data-submit-issue>
+              Создать
+            </button>
+          </footer>
+        </form>
+      </div>
+    </dialog>
+
+    <dialog
+      class="lab-dialog unsaved-dialog"
+      data-unsaved-dialog
+      role="alertdialog"
+      aria-labelledby="unsaved-dialog-title"
+      aria-describedby="unsaved-dialog-description"
+    >
+      <div class="dialog-surface">
+        <p class="eyebrow">Несохранённые данные</p>
+        <h2 id="unsaved-dialog-title">
+          Закрыть без сохранения?
+        </h2>
+        <p id="unsaved-dialog-description" data-unsaved-description>
+          Внесённые изменения будут потеряны.
+        </p>
+        <div class="dialog-actions">
+          <button class="button primary" type="button" data-continue-editing>
+            Продолжить работу
+          </button>
+          <button class="button danger" type="button" data-discard-changes>
+            Закрыть без сохранения
+          </button>
+        </div>
+      </div>
+    </dialog>
+
+    <dialog
+      class="lab-dialog delete-dialog"
+      data-delete-dialog
+      aria-labelledby="delete-dialog-title"
+      aria-describedby="delete-dialog-description"
+    >
+      <div class="dialog-surface">
+        <p class="eyebrow">Необратимое действие</p>
+        <h2 id="delete-dialog-title">Удалить дефект?</h2>
+        <p id="delete-dialog-description">
+          Дефект «<strong data-delete-issue-title></strong>» будет удалён безвозвратно.
+        </p>
+        <p class="form-error" role="alert" data-delete-error hidden></p>
+        <div class="dialog-actions">
+          <button class="button secondary" type="button" data-cancel-delete>
+            Отмена
+          </button>
+          <button class="button danger" type="button" data-confirm-delete>
+            Удалить
+          </button>
+        </div>
+      </div>
+    </dialog>
+
+    <script src="script.js"></script>
+    <script src="api-lab.js"></script>
+  </body>
+</html>

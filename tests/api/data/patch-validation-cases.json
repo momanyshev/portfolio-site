@@ -1,0 +1,73 @@
+[
+  {
+    "caseName": "Пустой PATCH",
+    "requestBody": {},
+    "expectedStatus": 422,
+    "expectedCode": "VALIDATION_ERROR",
+    "expectedFields": [
+      "_body"
+    ]
+  },
+  {
+    "caseName": "Некорректный status",
+    "requestBody": {
+      "status": "closed"
+    },
+    "expectedStatus": 422,
+    "expectedCode": "VALIDATION_ERROR",
+    "expectedFields": [
+      "status"
+    ]
+  },
+  {
+    "caseName": "Некорректный severity",
+    "requestBody": {
+      "severity": "urgent"
+    },
+    "expectedStatus": 422,
+    "expectedCode": "VALIDATION_ERROR",
+    "expectedFields": [
+      "severity"
+    ]
+  },
+  {
+    "caseName": "Title короче трёх символов",
+    "requestBody": {
+      "title": "AB"
+    },
+    "expectedStatus": 422,
+    "expectedCode": "VALIDATION_ERROR",
+    "expectedFields": [
+      "title"
+    ]
+  },
+  {
+    "caseName": "Неизвестное поле",
+    "requestBody": {
+      "unexpected": true
+    },
+    "expectedStatus": 422,
+    "expectedCode": "VALIDATION_ERROR",
+    "expectedFields": [
+      "unexpected"
+    ]
+  },
+  {
+    "caseName": "Попытка изменить createdAt",
+    "requestBody": {
+      "createdAt": "2026-01-01T00:00:00.000Z"
+    },
+    "expectedStatus": 422,
+    "expectedCode": "VALIDATION_ERROR",
+    "expectedFields": [
+      "createdAt"
+    ]
+  },
+  {
+    "caseName": "Невалидный JSON",
+    "requestBody": "{\"status\":",
+    "expectedStatus": 400,
+    "expectedCode": "MALFORMED_JSON",
+    "expectedFields": []
+  }
+]

@@ -5,5 +5,8 @@ node_modules/
 /playwright/.cache/
 /playwright/.auth/
 .playwright/
+.netlify/
+.netlify-home/
+deno.lock
 dist/
 .DS_Store

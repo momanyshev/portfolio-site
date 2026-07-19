@@ -1,0 +1,56 @@
+[
+  {
+    "caseName": "Некорректный status",
+    "queryString": "status=closed",
+    "expectedStatus": 400,
+    "expectedCode": "INVALID_QUERY",
+    "expectedFields": [
+      "status"
+    ]
+  },
+  {
+    "caseName": "Некорректный severity",
+    "queryString": "severity=urgent",
+    "expectedStatus": 400,
+    "expectedCode": "INVALID_QUERY",
+    "expectedFields": [
+      "severity"
+    ]
+  },
+  {
+    "caseName": "Неизвестный query-параметр",
+    "queryString": "sort=updatedAt",
+    "expectedStatus": 400,
+    "expectedCode": "INVALID_QUERY",
+    "expectedFields": [
+      "sort"
+    ]
+  },
+  {
+    "caseName": "Повторяющийся q",
+    "queryString": "q=кнопка&q=форма",
+    "expectedStatus": 400,
+    "expectedCode": "INVALID_QUERY",
+    "expectedFields": [
+      "q"
+    ]
+  },
+  {
+    "caseName": "Повторяющийся status",
+    "queryString": "status=open&status=resolved",
+    "expectedStatus": 400,
+    "expectedCode": "INVALID_QUERY",
+    "expectedFields": [
+      "status"
+    ]
+  },
+  {
+    "caseName": "Поисковая строка длиннее 120 символов",
+    "queryString": "q=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "expectedStatus": 400,
+    "expectedCode": "INVALID_QUERY",
+    "expectedFields": [
+      "q"
+    ]
+  }
+]

@@ -1,0 +1,135 @@
+[
+  {
+    "caseName": "Отсутствует title",
+    "requestBody": {
+      "description": "Достаточно длинное описание дефекта.",
+      "severity": "high"
+    },
+    "expectedStatus": 422,
+    "expectedCode": "VALIDATION_ERROR",
+    "expectedFields": [
+      "title"
+    ]
+  },
+  {
+    "caseName": "Отсутствует description",
+    "requestBody": {
+      "title": "Корректный заголовок",
+      "severity": "high"
+    },
+    "expectedStatus": 422,
+    "expectedCode": "VALIDATION_ERROR",
+    "expectedFields": [
+      "description"
+    ]
+  },
+  {
+    "caseName": "Отсутствует severity",
+    "requestBody": {
+      "title": "Корректный заголовок",
+      "description": "Достаточно длинное описание дефекта."
+    },
+    "expectedStatus": 422,
+    "expectedCode": "VALIDATION_ERROR",
+    "expectedFields": [
+      "severity"
+    ]
+  },
+  {
+    "caseName": "Title короче трёх символов",
+    "requestBody": {
+      "title": "AB",
+      "description": "Достаточно длинное описание дефекта.",
+      "severity": "high"
+    },
+    "expectedStatus": 422,
+    "expectedCode": "VALIDATION_ERROR",
+    "expectedFields": [
+      "title"
+    ]
+  },
+  {
+    "caseName": "Description короче десяти символов",
+    "requestBody": {
+      "title": "Корректный заголовок",
+      "description": "123456789",
+      "severity": "high"
+    },
+    "expectedStatus": 422,
+    "expectedCode": "VALIDATION_ERROR",
+    "expectedFields": [
+      "description"
+    ]
+  },
+  {
+    "caseName": "Некорректный severity",
+    "requestBody": {
+      "title": "Корректный заголовок",
+      "description": "Достаточно длинное описание дефекта.",
+      "severity": "urgent"
+    },
+    "expectedStatus": 422,
+    "expectedCode": "VALIDATION_ERROR",
+    "expectedFields": [
+      "severity"
+    ]
+  },
+  {
+    "caseName": "Некорректный status",
+    "requestBody": {
+      "title": "Корректный заголовок",
+      "description": "Достаточно длинное описание дефекта.",
+      "severity": "high",
+      "status": "closed"
+    },
+    "expectedStatus": 422,
+    "expectedCode": "VALIDATION_ERROR",
+    "expectedFields": [
+      "status"
+    ]
+  },
+  {
+    "caseName": "Неизвестное поле",
+    "requestBody": {
+      "title": "Корректный заголовок",
+      "description": "Достаточно длинное описание дефекта.",
+      "severity": "high",
+      "reporter": "qa@example.test"
+    },
+    "expectedStatus": 422,
+    "expectedCode": "VALIDATION_ERROR",
+    "expectedFields": [
+      "reporter"
+    ]
+  },
+  {
+    "caseName": "Попытка передать серверный id",
+    "requestBody": {
+      "id": "00000000-0000-0000-0000-000000000000",
+      "title": "Корректный заголовок",
+      "description": "Достаточно длинное описание дефекта.",
+      "severity": "high"
+    },
+    "expectedStatus": 422,
+    "expectedCode": "VALIDATION_ERROR",
+    "expectedFields": [
+      "id"
+    ]
+  },
+  {
+    "caseName": "Тело является массивом",
+    "requestBody": [],
+    "expectedStatus": 422,
+    "expectedCode": "VALIDATION_ERROR",
+    "expectedFields": [
+      "_body"
+    ]
+  },
+  {
+    "caseName": "Невалидный JSON",
+    "requestBody": "{\"title\":",
+    "expectedStatus": 400,
+    "expectedCode": "MALFORMED_JSON",
+    "expectedFields": []
+  }
+]

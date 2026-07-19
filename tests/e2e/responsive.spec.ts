@@ -3,9 +3,13 @@ import { expect, type Page, test } from "@playwright/test";
 const desktopViewport = { width: 1280, height: 900 };
 const mobileViewport = { width: 390, height: 844 };
 
-async function openAtViewport(page: Page, viewport: { width: number; height: number }) {
+async function openAtViewport(
+  page: Page,
+  viewport: { width: number; height: number },
+  path = "/"
+) {
   await page.setViewportSize(viewport);
-  await page.goto("/");
+  await page.goto(path);
 }
 
 async function expectNoHorizontalScroll(page: Page) {
@@ -40,6 +44,7 @@ test.describe("Адаптивная верстка", () => {
     await expect(navigation.getByRole("link", { name: "Опыт", exact: true })).toBeVisible();
     await expect(navigation.getByRole("link", { name: "Проекты", exact: true })).toBeVisible();
     await expect(navigation.getByRole("link", { name: "Контакты", exact: true })).toBeVisible();
+    await expect(navigation.getByRole("link", { name: "QA Lab", exact: true })).toBeVisible();
   });
 
   test("скрывает верхнюю навигацию на mobile", async ({ page }) => {
@@ -48,6 +53,7 @@ test.describe("Адаптивная верстка", () => {
     await expect(page.locator(".site-nav")).toBeHidden();
     await expect(page.getByRole("link", { name: "К началу страницы" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Переключить тему" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Открыть QA Lab" })).toBeVisible();
   });
 
   for (const viewport of [desktopViewport, mobileViewport]) {
@@ -55,6 +61,23 @@ test.describe("Адаптивная верстка", () => {
       await openAtViewport(page, viewport);
 
       await expectNoHorizontalScroll(page);
+    });
+
+    test(`открывает QA Lab напрямую без горизонтального скролла при ширине ${viewport.width}px`, async ({ page }) => {
+      await openAtViewport(page, viewport, "/api-lab.html");
+
+      await expect(
+        page.getByRole("heading", { name: "Трекер дефектов", level: 1 })
+      ).toBeVisible();
+      await expect(
+        page.locator(".lab-hero").getByRole("button", { name: "Создать дефект" })
+      ).toBeVisible();
+      await expectNoHorizontalScroll(page);
+
+      if (viewport.width === mobileViewport.width) {
+        await expect(page.locator(".site-nav")).toBeHidden();
+        await expect(page.getByRole("link", { name: "Вернуться к портфолио" })).toBeVisible();
+      }
     });
   }
 
@@ -66,6 +89,7 @@ test.describe("Адаптивная верстка", () => {
     await expect(heroActions).toHaveCSS("flex-direction", "row");
     await expect(heroActions.getByRole("link", { name: "Опыт", exact: true })).toBeVisible();
     await expect(heroActions.getByRole("link", { name: "Достижения и проекты", exact: true })).toBeVisible();
+    await expect(heroActions.getByRole("link", { name: "Открыть QA Lab" })).toBeVisible();
   });
 
   test("перестраивает hero-кнопки в колонку на mobile", async ({ page }) => {
@@ -74,23 +98,29 @@ test.describe("Адаптивная верстка", () => {
     const heroActions = page.locator(".hero-actions");
     const primaryButton = heroActions.getByRole("link", { name: "Опыт", exact: true });
     const secondaryButton = heroActions.getByRole("link", { name: "Достижения и проекты", exact: true });
+    const labButton = heroActions.getByRole("link", { name: "Открыть QA Lab" });
 
     await expect(heroActions).toHaveCSS("flex-direction", "column");
     await expect(primaryButton).toBeVisible();
     await expect(secondaryButton).toBeVisible();
+    await expect(labButton).toBeVisible();
 
-    const [actionsBox, primaryBox, secondaryBox] = await Promise.all([
+    const [actionsBox, primaryBox, secondaryBox, labBox] = await Promise.all([
       heroActions.boundingBox(),
       primaryButton.boundingBox(),
-      secondaryButton.boundingBox()
+      secondaryButton.boundingBox(),
+      labButton.boundingBox()
     ]);
 
     expect(actionsBox).not.toBeNull();
     expect(primaryBox).not.toBeNull();
     expect(secondaryBox).not.toBeNull();
+    expect(labBox).not.toBeNull();
 
     expect(primaryBox!.width).toBeGreaterThanOrEqual(actionsBox!.width - 1);
     expect(secondaryBox!.width).toBeGreaterThanOrEqual(actionsBox!.width - 1);
+    expect(labBox!.width).toBeGreaterThanOrEqual(actionsBox!.width - 1);
     expect(secondaryBox!.y).toBeGreaterThan(primaryBox!.y + primaryBox!.height);
+    expect(labBox!.y).toBeGreaterThan(secondaryBox!.y + secondaryBox!.height);
   });
 });

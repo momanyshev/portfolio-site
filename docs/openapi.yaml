@@ -1,0 +1,780 @@
+openapi: 3.1.0
+info:
+  title: QA Lab Issues API
+  version: 1.0.0
+  summary: Demo CRUD API for issue records in the QA Engineer portfolio.
+  description: |
+    The API powers the public QA Lab page. Data is isolated by the required
+    `X-Demo-Workspace-Id` UUID header. A workspace identifier is a partition
+    key, not authentication, so the API must not be used for sensitive data.
+
+    Each workspace can contain at most 50 issues. Its data is considered expired
+    30 days after the latest successful POST, PATCH, or DELETE. Reads do not
+    extend this period.
+  license:
+    name: ISC
+jsonSchemaDialect: https://json-schema.org/draft/2020-12/schema
+servers:
+  - url: /
+    description: Current Netlify deployment
+  - url: http://localhost:8888
+    description: Local Netlify Dev
+tags:
+  - name: Issues
+    description: CRUD operations for demo issue records.
+security: []
+paths:
+  /api/issues:
+    get:
+      tags:
+        - Issues
+      summary: List issues
+      description: |
+        Returns issues from one workspace. All supplied filters are combined
+        with AND. Search is a case-insensitive substring match over title and
+        description after trimming the query. Unknown and repeated query
+        parameters are rejected.
+
+        Items are ordered by `updatedAt` descending, then by `id` ascending.
+        `total` is the number of items after filtering.
+      operationId: listIssues
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/SearchQuery"
+        - $ref: "#/components/parameters/SeverityFilter"
+        - $ref: "#/components/parameters/StatusFilter"
+      responses:
+        "200":
+          description: Filtered issue list.
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/CacheControl"
+            Vary:
+              $ref: "#/components/headers/VaryWorkspace"
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IssueList"
+              examples:
+                populated:
+                  summary: One matching issue
+                  value:
+                    items:
+                      - id: 8bb25ebf-7b31-4b29-8070-8bd224b37d64
+                        title: Submit button stays disabled
+                        description: The button remains disabled after every required field is completed.
+                        severity: high
+                        status: open
+                        createdAt: "2026-07-13T09:00:00.000Z"
+                        updatedAt: "2026-07-13T09:00:00.000Z"
+                    total: 1
+                empty:
+                  summary: No matching issues
+                  value:
+                    items: []
+                    total: 0
+        "400":
+          $ref: "#/components/responses/ListBadRequest"
+        "405":
+          $ref: "#/components/responses/CollectionMethodNotAllowed"
+        "409":
+          $ref: "#/components/responses/MutationConflict"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    post:
+      tags:
+        - Issues
+      summary: Create an issue
+      description: |
+        Creates an issue in the selected workspace. The server generates
+        `id`, `createdAt`, and `updatedAt`. If status is omitted, it
+        defaults to `open`. Title and description are trimmed before storage.
+      operationId: createIssue
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        description: Mutable fields for the new issue. Unknown and server-managed fields are rejected.
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IssueCreate"
+            examples:
+              defaultStatus:
+                summary: Create an open issue
+                value:
+                  title: Submit button stays disabled
+                  description: The button remains disabled after every required field is completed.
+                  severity: high
+              explicitStatus:
+                summary: Create an issue with an explicit status
+                value:
+                  title: Error banner overlaps the header
+                  description: At 320 px viewport width the error banner covers the main navigation.
+                  severity: medium
+                  status: in_progress
+      responses:
+        "201":
+          description: Issue created.
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/CacheControl"
+            Vary:
+              $ref: "#/components/headers/VaryWorkspace"
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+            Location:
+              description: Relative URL of the created issue.
+              required: true
+              schema:
+                type: string
+                pattern: ^/api/issues/[0-9a-fA-F-]{36}$
+              example: /api/issues/8bb25ebf-7b31-4b29-8070-8bd224b37d64
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Issue"
+        "400":
+          $ref: "#/components/responses/CreateBadRequest"
+        "405":
+          $ref: "#/components/responses/CollectionMethodNotAllowed"
+        "409":
+          $ref: "#/components/responses/CreateConflict"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /api/issues/{id}:
+    parameters:
+      - $ref: "#/components/parameters/IssueId"
+    get:
+      tags:
+        - Issues
+      summary: Get one issue
+      operationId: getIssue
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: Issue found.
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/CacheControl"
+            Vary:
+              $ref: "#/components/headers/VaryWorkspace"
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Issue"
+        "400":
+          $ref: "#/components/responses/ItemBadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/ItemMethodNotAllowed"
+        "409":
+          $ref: "#/components/responses/MutationConflict"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    patch:
+      tags:
+        - Issues
+      summary: Partially update an issue
+      description: |
+        Updates one or more mutable fields. At least one field is required.
+        Fields omitted from the request remain unchanged. The server preserves
+        `id` and `createdAt` and advances `updatedAt`.
+      operationId: updateIssue
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        description: One or more mutable fields. Unknown and server-managed fields are rejected.
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IssuePatch"
+            examples:
+              resolve:
+                value:
+                  status: resolved
+              reprioritize:
+                value:
+                  severity: critical
+                  status: in_progress
+      responses:
+        "200":
+          description: Updated issue.
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/CacheControl"
+            Vary:
+              $ref: "#/components/headers/VaryWorkspace"
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Issue"
+        "400":
+          $ref: "#/components/responses/PatchBadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/ItemMethodNotAllowed"
+        "409":
+          $ref: "#/components/responses/MutationConflict"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    delete:
+      tags:
+        - Issues
+      summary: Delete an issue
+      operationId: deleteIssue
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "204":
+          description: Issue deleted. The response has no body or Content-Type.
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/CacheControl"
+            Vary:
+              $ref: "#/components/headers/VaryWorkspace"
+            X-Request-Id:
+              $ref: "#/components/headers/RequestId"
+        "400":
+          $ref: "#/components/responses/ItemBadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/ItemMethodNotAllowed"
+        "409":
+          $ref: "#/components/responses/MutationConflict"
+        "500":
+          $ref: "#/components/responses/InternalError"
+components:
+  parameters:
+    WorkspaceId:
+      name: X-Demo-Workspace-Id
+      in: header
+      required: true
+      description: |
+        UUID that partitions public demo data. It is not an authentication
+        credential and must not be treated as a secret.
+      schema:
+        type: string
+        format: uuid
+      example: 3f64012e-4f50-4d6f-80ea-f51e840abc91
+    IssueId:
+      name: id
+      in: path
+      required: true
+      description: Server-generated issue UUID.
+      schema:
+        type: string
+        format: uuid
+      example: 8bb25ebf-7b31-4b29-8070-8bd224b37d64
+    SearchQuery:
+      name: q
+      in: query
+      required: false
+      description: |
+        Case-insensitive substring search over title and description. Leading
+        and trailing whitespace is removed. Must not be repeated.
+      schema:
+        type: string
+        maxLength: 120
+      example: button
+    SeverityFilter:
+      name: severity
+      in: query
+      required: false
+      description: Exact severity filter. Must not be repeated.
+      schema:
+        $ref: "#/components/schemas/Severity"
+    StatusFilter:
+      name: status
+      in: query
+      required: false
+      description: Exact status filter. Must not be repeated.
+      schema:
+        $ref: "#/components/schemas/IssueStatus"
+  headers:
+    CacheControl:
+      description: Prevents storage of workspace-specific responses by caches.
+      required: true
+      schema:
+        type: string
+        const: no-store
+      example: no-store
+    VaryWorkspace:
+      description: Declares that the response varies by workspace header.
+      required: true
+      schema:
+        type: string
+        const: X-Demo-Workspace-Id
+      example: X-Demo-Workspace-Id
+    RequestId:
+      description: Server-generated identifier for correlating a response with logs.
+      required: true
+      schema:
+        type: string
+        format: uuid
+      example: d2865864-225a-4026-a2d7-0c063a06f985
+  schemas:
+    Severity:
+      type: string
+      enum:
+        - low
+        - medium
+        - high
+        - critical
+      example: high
+    IssueStatus:
+      type: string
+      enum:
+        - open
+        - in_progress
+        - resolved
+      example: open
+    Issue:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - title
+        - description
+        - severity
+        - status
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        title:
+          type: string
+          minLength: 3
+          maxLength: 120
+          description: Stored after trimming leading and trailing whitespace.
+        description:
+          type: string
+          minLength: 10
+          maxLength: 2000
+          description: Stored after trimming leading and trailing whitespace.
+        severity:
+          $ref: "#/components/schemas/Severity"
+        status:
+          $ref: "#/components/schemas/IssueStatus"
+        createdAt:
+          type: string
+          format: date-time
+          readOnly: true
+        updatedAt:
+          type: string
+          format: date-time
+          readOnly: true
+      example:
+        id: 8bb25ebf-7b31-4b29-8070-8bd224b37d64
+        title: Submit button stays disabled
+        description: The button remains disabled after every required field is completed.
+        severity: high
+        status: open
+        createdAt: "2026-07-13T09:00:00.000Z"
+        updatedAt: "2026-07-13T09:00:00.000Z"
+    IssueCreate:
+      type: object
+      additionalProperties: false
+      required:
+        - title
+        - description
+        - severity
+      properties:
+        title:
+          type: string
+          minLength: 3
+          maxLength: 120
+          description: Length is validated after trimming.
+        description:
+          type: string
+          minLength: 10
+          maxLength: 2000
+          description: Length is validated after trimming.
+        severity:
+          $ref: "#/components/schemas/Severity"
+        status:
+          allOf:
+            - $ref: "#/components/schemas/IssueStatus"
+          default: open
+    IssuePatch:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        title:
+          type: string
+          minLength: 3
+          maxLength: 120
+          description: Length is validated after trimming.
+        description:
+          type: string
+          minLength: 10
+          maxLength: 2000
+          description: Length is validated after trimming.
+        severity:
+          $ref: "#/components/schemas/Severity"
+        status:
+          $ref: "#/components/schemas/IssueStatus"
+    IssueList:
+      type: object
+      additionalProperties: false
+      required:
+        - items
+        - total
+      properties:
+        items:
+          type: array
+          maxItems: 50
+          items:
+            $ref: "#/components/schemas/Issue"
+        total:
+          type: integer
+          minimum: 0
+          maximum: 50
+      example:
+        items: []
+        total: 0
+    ErrorCode:
+      type: string
+      enum:
+        - INVALID_WORKSPACE
+        - INVALID_ID
+        - INVALID_QUERY
+        - MALFORMED_JSON
+        - UNSUPPORTED_MEDIA_TYPE
+        - VALIDATION_ERROR
+        - NOT_FOUND
+        - METHOD_NOT_ALLOWED
+        - WORKSPACE_LIMIT_REACHED
+        - CONCURRENT_MODIFICATION
+        - INTERNAL_ERROR
+    FieldErrors:
+      type: object
+      description: |
+        Field or parameter names mapped to validation messages. The object is
+        empty when an error is not associated with a particular field.
+      additionalProperties:
+        type: string
+      example:
+        title: Field must contain at least 3 characters after trimming
+    ErrorDetail:
+      type: object
+      additionalProperties: false
+      required:
+        - code
+        - message
+        - fields
+        - requestId
+      properties:
+        code:
+          $ref: "#/components/schemas/ErrorCode"
+        message:
+          type: string
+        fields:
+          $ref: "#/components/schemas/FieldErrors"
+        requestId:
+          type: string
+          format: uuid
+    ErrorResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - error
+      properties:
+        error:
+          $ref: "#/components/schemas/ErrorDetail"
+  responses:
+    ListBadRequest:
+      description: |
+        Invalid workspace header (`INVALID_WORKSPACE`) or invalid, unknown, or
+        repeated query parameter (`INVALID_QUERY`).
+      headers:
+        Cache-Control:
+          $ref: "#/components/headers/CacheControl"
+        Vary:
+          $ref: "#/components/headers/VaryWorkspace"
+        X-Request-Id:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          examples:
+            invalidWorkspace:
+              value:
+                error:
+                  code: INVALID_WORKSPACE
+                  message: X-Demo-Workspace-Id must contain a valid UUID
+                  fields:
+                    X-Demo-Workspace-Id: A valid UUID is required
+                  requestId: d2865864-225a-4026-a2d7-0c063a06f985
+            invalidQuery:
+              value:
+                error:
+                  code: INVALID_QUERY
+                  message: Query validation failed
+                  fields:
+                    severity: "Query must be one of: low, medium, high, critical"
+                  requestId: d2865864-225a-4026-a2d7-0c063a06f985
+    CreateBadRequest:
+      description: |
+        Invalid workspace header (`INVALID_WORKSPACE`) or syntactically invalid
+        JSON body (`MALFORMED_JSON`).
+      headers:
+        Cache-Control:
+          $ref: "#/components/headers/CacheControl"
+        Vary:
+          $ref: "#/components/headers/VaryWorkspace"
+        X-Request-Id:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          examples:
+            malformedJson:
+              value:
+                error:
+                  code: MALFORMED_JSON
+                  message: Request body must contain valid JSON
+                  fields: {}
+                  requestId: d2865864-225a-4026-a2d7-0c063a06f985
+    ItemBadRequest:
+      description: |
+        Invalid workspace header (`INVALID_WORKSPACE`) or invalid issue path
+        UUID (`INVALID_ID`).
+      headers:
+        Cache-Control:
+          $ref: "#/components/headers/CacheControl"
+        Vary:
+          $ref: "#/components/headers/VaryWorkspace"
+        X-Request-Id:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error:
+              code: INVALID_ID
+              message: Issue id must be a valid UUID
+              fields:
+                id: A valid UUID is required
+              requestId: d2865864-225a-4026-a2d7-0c063a06f985
+    PatchBadRequest:
+      description: |
+        Invalid workspace header (`INVALID_WORKSPACE`), invalid issue path UUID
+        (`INVALID_ID`), or syntactically invalid JSON body
+        (`MALFORMED_JSON`).
+      headers:
+        Cache-Control:
+          $ref: "#/components/headers/CacheControl"
+        Vary:
+          $ref: "#/components/headers/VaryWorkspace"
+        X-Request-Id:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    NotFound:
+      description: No issue with this ID exists in the selected workspace (`NOT_FOUND`).
+      headers:
+        Cache-Control:
+          $ref: "#/components/headers/CacheControl"
+        Vary:
+          $ref: "#/components/headers/VaryWorkspace"
+        X-Request-Id:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error:
+              code: NOT_FOUND
+              message: Issue not found
+              fields: {}
+              requestId: d2865864-225a-4026-a2d7-0c063a06f985
+    UnsupportedMediaType:
+      description: Request Content-Type is not application/json (`UNSUPPORTED_MEDIA_TYPE`).
+      headers:
+        Cache-Control:
+          $ref: "#/components/headers/CacheControl"
+        Vary:
+          $ref: "#/components/headers/VaryWorkspace"
+        X-Request-Id:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error:
+              code: UNSUPPORTED_MEDIA_TYPE
+              message: Content-Type must be application/json
+              fields: {}
+              requestId: d2865864-225a-4026-a2d7-0c063a06f985
+    ValidationError:
+      description: Body validation failed (`VALIDATION_ERROR`).
+      headers:
+        Cache-Control:
+          $ref: "#/components/headers/CacheControl"
+        Vary:
+          $ref: "#/components/headers/VaryWorkspace"
+        X-Request-Id:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error:
+              code: VALIDATION_ERROR
+              message: Request validation failed
+              fields:
+                title: Field must contain at least 3 characters after trimming
+              requestId: d2865864-225a-4026-a2d7-0c063a06f985
+    CreateConflict:
+      description: |
+        Workspace already contains 50 issues (`WORKSPACE_LIMIT_REACHED`) or a
+        concurrent update could not be committed after retries
+        (`CONCURRENT_MODIFICATION`).
+      headers:
+        Cache-Control:
+          $ref: "#/components/headers/CacheControl"
+        Vary:
+          $ref: "#/components/headers/VaryWorkspace"
+        X-Request-Id:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          examples:
+            limitReached:
+              value:
+                error:
+                  code: WORKSPACE_LIMIT_REACHED
+                  message: A demo workspace can contain at most 50 issues.
+                  fields: {}
+                  requestId: d2865864-225a-4026-a2d7-0c063a06f985
+            concurrentModification:
+              value:
+                error:
+                  code: CONCURRENT_MODIFICATION
+                  message: The workspace changed concurrently. Retry the request.
+                  fields: {}
+                  requestId: d2865864-225a-4026-a2d7-0c063a06f985
+    MutationConflict:
+      description: A concurrent update could not be committed after retries (`CONCURRENT_MODIFICATION`).
+      headers:
+        Cache-Control:
+          $ref: "#/components/headers/CacheControl"
+        Vary:
+          $ref: "#/components/headers/VaryWorkspace"
+        X-Request-Id:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error:
+              code: CONCURRENT_MODIFICATION
+              message: The workspace changed concurrently. Retry the request.
+              fields: {}
+              requestId: d2865864-225a-4026-a2d7-0c063a06f985
+    CollectionMethodNotAllowed:
+      description: Unsupported method for the collection resource (`METHOD_NOT_ALLOWED`).
+      headers:
+        Cache-Control:
+          $ref: "#/components/headers/CacheControl"
+        Vary:
+          $ref: "#/components/headers/VaryWorkspace"
+        X-Request-Id:
+          $ref: "#/components/headers/RequestId"
+        Allow:
+          description: Methods supported by the collection resource.
+          required: true
+          schema:
+            type: string
+            const: GET, POST
+          example: GET, POST
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error:
+              code: METHOD_NOT_ALLOWED
+              message: HTTP method is not supported for this resource
+              fields: {}
+              requestId: d2865864-225a-4026-a2d7-0c063a06f985
+    ItemMethodNotAllowed:
+      description: Unsupported method for an item resource (`METHOD_NOT_ALLOWED`).
+      headers:
+        Cache-Control:
+          $ref: "#/components/headers/CacheControl"
+        Vary:
+          $ref: "#/components/headers/VaryWorkspace"
+        X-Request-Id:
+          $ref: "#/components/headers/RequestId"
+        Allow:
+          description: Methods supported by an item resource.
+          required: true
+          schema:
+            type: string
+            const: GET, PATCH, DELETE
+          example: GET, PATCH, DELETE
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error:
+              code: METHOD_NOT_ALLOWED
+              message: HTTP method is not supported for this resource
+              fields: {}
+              requestId: d2865864-225a-4026-a2d7-0c063a06f985
+    InternalError:
+      description: Unexpected server or storage failure (`INTERNAL_ERROR`).
+      headers:
+        Cache-Control:
+          $ref: "#/components/headers/CacheControl"
+        Vary:
+          $ref: "#/components/headers/VaryWorkspace"
+        X-Request-Id:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error:
+              code: INTERNAL_ERROR
+              message: The server could not process the request
+              fields: {}
+              requestId: d2865864-225a-4026-a2d7-0c063a06f985
