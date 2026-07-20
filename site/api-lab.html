@@ -20,16 +20,25 @@
         <a href="#issues">Дефекты</a>
         <a href="#api-inspector">API-запрос</a>
       </nav>
-      <button
-        class="theme-toggle"
-        type="button"
-        data-theme-toggle
-        aria-label="Переключить тему"
-        aria-pressed="false"
-        title="Переключить тему"
-      >
-        <span class="theme-toggle-icon" aria-hidden="true">☾</span>
-      </button>
+      <div class="lab-header-actions">
+        <button
+          class="button primary lab-header-create"
+          type="button"
+          data-open-create
+        >
+          Создать дефект
+        </button>
+        <button
+          class="theme-toggle"
+          type="button"
+          data-theme-toggle
+          aria-label="Переключить тему"
+          aria-pressed="false"
+          title="Переключить тему"
+        >
+          <span class="theme-toggle-icon" aria-hidden="true">☾</span>
+        </button>
+      </div>
     </header>
 
     <main class="lab-main">
@@ -42,9 +51,6 @@
             реальный HTTP API. Интерфейс показывает параметры каждого запроса.
           </p>
           <div class="lab-hero-actions">
-            <button class="button primary" type="button" data-open-create>
-              Создать дефект
-            </button>
             <a class="button secondary" href="#api-inspector">
               Последний API-запрос
             </a>
@@ -54,13 +60,31 @@
         <aside class="workspace-card" aria-labelledby="workspace-title">
           <p class="eyebrow" id="workspace-title">Демо-пространство</p>
           <p>
-            Записи изолированы от других посетителей и хранятся отдельно для
-            этого браузера.
+            Workspace ID определяет набор дефектов. Сохраните его, чтобы открыть
+            те же данные в другом браузере.
           </p>
           <dl class="workspace-facts">
             <div>
               <dt>Workspace</dt>
-              <dd><code data-workspace-id>создаётся…</code></dd>
+              <dd class="workspace-id-value">
+                <code data-workspace-id>создаётся…</code>
+                <button
+                  class="workspace-edit-button"
+                  type="button"
+                  aria-label="Изменить Workspace ID"
+                  aria-haspopup="dialog"
+                  aria-controls="workspace-dialog"
+                  title="Изменить Workspace ID"
+                  data-edit-workspace
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M12 20h9"></path>
+                    <path
+                      d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"
+                    ></path>
+                  </svg>
+                </button>
+              </dd>
             </div>
             <div>
               <dt>Лимит</dt>
@@ -117,6 +141,7 @@
               <option value="">Все статусы</option>
               <option value="open">Открыт</option>
               <option value="in_progress">В работе</option>
+              <option value="testing">Тестирование</option>
               <option value="resolved">Решён</option>
             </select>
           </div>
@@ -128,6 +153,7 @@
               <option value="medium">Средняя</option>
               <option value="high">Высокая</option>
               <option value="critical">Критическая</option>
+              <option value="blocker">Блокер</option>
             </select>
           </div>
           <button class="button secondary filter-reset" type="reset">
@@ -245,10 +271,20 @@
           <div class="issue-card-header">
             <div class="issue-badges">
               <span class="issue-badge" data-issue-severity></span>
-              <span class="issue-badge" data-issue-status></span>
+              <span class="issue-status-control" data-issue-status-control>
+                <label class="visually-hidden" data-issue-status-label></label>
+                <select
+                  class="issue-badge issue-status-select"
+                  data-issue-status
+                  title="Изменить статус"
+                ></select>
+                <span class="issue-status-chevron" aria-hidden="true">▾</span>
+                <span class="visually-hidden" data-issue-status-hint></span>
+              </span>
             </div>
             <time class="issue-updated" data-issue-updated></time>
           </div>
+          <p class="issue-status-error" role="alert" data-issue-status-error hidden></p>
           <h3 data-issue-title></h3>
           <p class="issue-description-preview" data-issue-description></p>
           <div class="issue-actions">
@@ -265,6 +301,82 @@
         </article>
       </li>
     </template>
+
+    <dialog
+      class="lab-dialog workspace-dialog"
+      id="workspace-dialog"
+      data-workspace-dialog
+      aria-labelledby="workspace-dialog-title"
+      aria-describedby="workspace-dialog-description workspace-switch-note"
+    >
+      <div class="dialog-surface">
+        <header class="dialog-header">
+          <div>
+            <p class="eyebrow">Демо-пространство</p>
+            <h2 id="workspace-dialog-title">Изменить Workspace</h2>
+          </div>
+          <button
+            class="icon-button"
+            type="button"
+            aria-label="Закрыть изменение Workspace"
+            data-close-workspace
+          >
+            ×
+          </button>
+        </header>
+
+        <p class="workspace-dialog-lead" id="workspace-dialog-description">
+          Введите UUID пространства, чтобы открыть связанные с ним дефекты.
+          Значение сохранится в этом браузере.
+        </p>
+
+        <form class="workspace-form" data-workspace-form novalidate>
+          <div class="form-field">
+            <label for="workspace-id-input">Workspace ID</label>
+            <input
+              id="workspace-id-input"
+              name="workspaceId"
+              type="text"
+              required
+              autocomplete="off"
+              autocapitalize="none"
+              spellcheck="false"
+              aria-describedby="workspace-id-hint workspace-id-error"
+              data-workspace-input
+            >
+            <small id="workspace-id-hint">
+              Формат UUID: 123e4567-e89b-12d3-a456-426614174000.
+            </small>
+            <p
+              class="field-error"
+              id="workspace-id-error"
+              role="alert"
+              data-workspace-error
+              hidden
+            ></p>
+          </div>
+
+          <p class="workspace-switch-note" id="workspace-switch-note">
+            <strong>Записи не переносятся.</strong>
+            Вы увидите дефекты выбранного пространства, а текущие останутся
+            доступны по прежнему UUID.
+          </p>
+
+          <footer class="dialog-actions">
+            <button
+              class="button secondary"
+              type="button"
+              data-close-workspace
+            >
+              Отмена
+            </button>
+            <button class="button primary" type="submit">
+              Сохранить и перейти
+            </button>
+          </footer>
+        </form>
+      </div>
+    </dialog>
 
     <dialog
       class="lab-dialog"
@@ -399,6 +511,7 @@
                 <option value="medium" selected>Средняя</option>
                 <option value="high">Высокая</option>
                 <option value="critical">Критическая</option>
+                <option value="blocker">Блокер</option>
               </select>
               <p
                 class="field-error"
@@ -414,12 +527,14 @@
                 id="issue-status"
                 name="status"
                 required
-                aria-describedby="issue-status-error"
+                aria-describedby="issue-status-hint issue-status-error"
               >
                 <option value="open">Открыт</option>
                 <option value="in_progress">В работе</option>
+                <option value="testing">Тестирование</option>
                 <option value="resolved">Решён</option>
               </select>
+              <p class="field-hint" id="issue-status-hint" data-status-hint></p>
               <p
                 class="field-error"
                 id="issue-status-error"

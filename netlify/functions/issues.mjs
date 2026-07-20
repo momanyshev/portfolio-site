@@ -118,6 +118,10 @@ function handleStoreError(error, requestId) {
     return errorResponse(409, error.code, error.message, requestId);
   }
 
+  if (error.code === "INVALID_STATUS_TRANSITION") {
+    return errorResponse(409, error.code, error.message, requestId, error.fields);
+  }
+
   return null;
 }
 

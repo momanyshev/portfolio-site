@@ -1,4 +1,8 @@
 import { getStore } from "@netlify/blobs";
+import {
+  getAllowedIssueStatusTransitions,
+  isAllowedIssueStatusTransition
+} from "./issues-validation.mjs";
 
 export const MAX_ISSUES_PER_WORKSPACE = 50;
 export const WORKSPACE_RETENTION_DAYS = 30;
@@ -9,10 +13,11 @@ const MAX_WRITE_ATTEMPTS = 5;
 const RETENTION_MS = WORKSPACE_RETENTION_DAYS * 24 * 60 * 60 * 1000;
 
 export class IssueStoreError extends Error {
-  constructor(code, message) {
+  constructor(code, message, fields = {}) {
     super(message);
     this.name = "IssueStoreError";
     this.code = code;
+    this.fields = fields;
   }
 }
 
@@ -172,6 +177,24 @@ export async function updateIssue(workspaceId, issueId, patch) {
     }
 
     const existing = items[index];
+    if (
+      patch.status !== undefined &&
+      !isAllowedIssueStatusTransition(existing.status, patch.status)
+    ) {
+      const allowedStatuses = getAllowedIssueStatusTransitions(existing.status);
+      throw new IssueStoreError(
+        "INVALID_STATUS_TRANSITION",
+        "Status transition is not allowed",
+        {
+          status:
+            'Status can only remain "' +
+            existing.status +
+            '" or change to ' +
+            allowedStatuses.map((status) => '"' + status + '"').join(" or ")
+        }
+      );
+    }
+
     const updatedAt = new Date(
       Math.max(Date.now(), Date.parse(existing.updatedAt) + 1)
     ).toISOString();

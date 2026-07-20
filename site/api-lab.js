@@ -5,13 +5,44 @@ const SEVERITY_LABELS = {
   low: "Низкая",
   medium: "Средняя",
   high: "Высокая",
-  critical: "Критическая"
+  critical: "Критическая",
+  blocker: "Блокер"
 };
 const STATUS_LABELS = {
   open: "Открыт",
   in_progress: "В работе",
+  testing: "Тестирование",
   resolved: "Решён"
 };
+const STATUS_FLOW = ["open", "in_progress", "testing", "resolved"];
+const STATUS_TRANSITIONS = {
+  open: ["in_progress"],
+  in_progress: ["testing"],
+  testing: ["in_progress", "resolved"],
+  resolved: ["open"]
+};
+
+function getAllowedStatusTransitions(status) {
+  return STATUS_TRANSITIONS[status] || [];
+}
+
+function isAllowedStatusTransition(currentStatus, nextStatus) {
+  return (
+    nextStatus === currentStatus ||
+    getAllowedStatusTransitions(currentStatus).includes(nextStatus)
+  );
+}
+
+function formatStatusTransitionHint(statuses) {
+  if (statuses.length === 1) {
+    return "Доступный переход — «" + STATUS_LABELS[statuses[0]] + "».";
+  }
+  return (
+    "Доступные переходы — «" +
+    statuses.map((status) => STATUS_LABELS[status]).join("» или «") +
+    "»."
+  );
+}
 
 class ApiError extends Error {
   constructor(message, { status = 0, payload = null } = {}) {
@@ -25,6 +56,7 @@ class ApiError extends Error {
 const state = {
   workspaceId: "",
   workspacePersistent: true,
+  workspaceRevision: 0,
   items: [],
   total: 0,
   filters: { q: "", status: "", severity: "" },
@@ -34,14 +66,21 @@ const state = {
   submitting: false,
   deleting: false,
   openingIssue: false,
+  statusUpdates: new Map(),
   listController: null,
   listToken: 0,
   requestSequence: 0,
-  inspectorSequence: 0
+  inspectorSequence: 0,
+  unsavedSourceDialog: null
 };
 
 const elements = {
   workspaceId: document.querySelector("[data-workspace-id]"),
+  editWorkspace: document.querySelector("[data-edit-workspace]"),
+  workspaceDialog: document.querySelector("[data-workspace-dialog]"),
+  workspaceForm: document.querySelector("[data-workspace-form]"),
+  workspaceInput: document.querySelector("[data-workspace-input]"),
+  workspaceError: document.querySelector("[data-workspace-error]"),
   filterForm: document.querySelector("[data-filter-form]"),
   filterQuery: document.querySelector("#filter-query"),
   filterStatus: document.querySelector("#filter-status"),
@@ -90,6 +129,7 @@ const elements = {
   descriptionInput: document.querySelector("#issue-description"),
   severityInput: document.querySelector("#issue-severity"),
   statusInput: document.querySelector("#issue-status"),
+  statusHint: document.querySelector("[data-status-hint]"),
   descriptionCount: document.querySelector("[data-description-count]"),
   submitIssue: document.querySelector("[data-submit-issue]"),
   unsavedDialog: document.querySelector("[data-unsaved-dialog]"),
@@ -112,17 +152,32 @@ function makeWorkspaceId() {
   return crypto.randomUUID();
 }
 
+function normalizeWorkspaceId(value) {
+  return value.trim().toLowerCase();
+}
+
+function displayWorkspaceId(workspaceId) {
+  elements.workspaceId.textContent = workspaceId;
+}
+
 function initializeWorkspace() {
+  let saved = "";
   try {
-    const saved = localStorage.getItem(WORKSPACE_STORAGE_KEY);
-    state.workspaceId = saved && UUID_PATTERN.test(saved) ? saved : makeWorkspaceId();
-    localStorage.setItem(WORKSPACE_STORAGE_KEY, state.workspaceId);
+    saved = normalizeWorkspaceId(
+      localStorage.getItem(WORKSPACE_STORAGE_KEY) || ""
+    );
   } catch {
-    state.workspaceId = makeWorkspaceId();
     state.workspacePersistent = false;
   }
 
-  elements.workspaceId.textContent = state.workspaceId;
+  state.workspaceId = saved && UUID_PATTERN.test(saved) ? saved : makeWorkspaceId();
+  try {
+    localStorage.setItem(WORKSPACE_STORAGE_KEY, state.workspaceId);
+  } catch {
+    state.workspacePersistent = false;
+  }
+
+  displayWorkspaceId(state.workspaceId);
 }
 
 function announce(message) {
@@ -134,11 +189,13 @@ function announce(message) {
 
 function clearOperationStatus() {
   elements.operationStatus.textContent = "";
+  elements.operationStatus.classList.remove("is-error");
   elements.operationStatus.hidden = true;
 }
 
-function showOperationStatus(message) {
+function showOperationStatus(message, { isError = false } = {}) {
   elements.operationStatus.textContent = message;
+  elements.operationStatus.classList.toggle("is-error", isError);
   elements.operationStatus.hidden = false;
 }
 
@@ -165,6 +222,14 @@ function getErrorMessage(error) {
     return error.payload?.error?.message || error.message;
   }
   return "Не удалось связаться с API. Попробуйте ещё раз.";
+}
+
+function isStatusTransitionConflict(error) {
+  return (
+    error instanceof ApiError &&
+    error.status === 409 &&
+    error.payload?.error?.code === "INVALID_STATUS_TRANSITION"
+  );
 }
 
 function recordRequest(sequence, details) {
@@ -196,10 +261,12 @@ function recordRequest(sequence, details) {
 
 async function request(path, { method = "GET", body, signal, inspect = true } = {}) {
   const sequence = ++state.requestSequence;
+  const workspaceRevision = state.workspaceRevision;
+  const workspaceId = state.workspaceId;
   const startedAt = performance.now();
   const headers = {
     Accept: "application/json",
-    "X-Demo-Workspace-Id": state.workspaceId
+    "X-Demo-Workspace-Id": workspaceId
   };
 
   if (body !== undefined) headers["Content-Type"] = "application/json";
@@ -220,6 +287,10 @@ async function request(path, { method = "GET", body, signal, inspect = true } = 
       } catch {
         responseBody = responseText;
       }
+    }
+
+    if (workspaceRevision !== state.workspaceRevision) {
+      throw new DOMException("Workspace changed", "AbortError");
     }
 
     if (inspect) {
@@ -243,6 +314,9 @@ async function request(path, { method = "GET", body, signal, inspect = true } = 
 
     return responseBody;
   } catch (error) {
+    if (workspaceRevision !== state.workspaceRevision) {
+      throw new DOMException("Workspace changed", "AbortError");
+    }
     if (error.name === "AbortError") throw error;
     if (error instanceof ApiError) throw error;
 
@@ -270,8 +344,10 @@ const api = {
     const suffix = query.size > 0 ? "?" + query.toString() : "";
     return request("/api/issues" + suffix, { signal, inspect: inspectRequest });
   },
-  get(issueId) {
-    return request("/api/issues/" + encodeURIComponent(issueId));
+  get(issueId, inspectRequest = true) {
+    return request("/api/issues/" + encodeURIComponent(issueId), {
+      inspect: inspectRequest
+    });
   },
   create(payload) {
     return request("/api/issues", { method: "POST", body: payload });
@@ -292,6 +368,98 @@ function setBadge(element, kind, value) {
   element.dataset.kind = kind;
   element.dataset.value = value;
   element.textContent = labels[value] || value;
+}
+
+function setInlineStatusValue(control, value) {
+  control.value = value;
+  control.dataset.value = value;
+  const wrapper = control.closest("[data-issue-status-control]");
+  if (wrapper) wrapper.dataset.value = value;
+}
+
+function setStatusOptions(control, statuses, selectedStatus) {
+  const fragment = document.createDocumentFragment();
+  for (const status of statuses) {
+    const option = document.createElement("option");
+    option.value = status;
+    option.textContent = STATUS_LABELS[status];
+    fragment.append(option);
+  }
+  control.replaceChildren(fragment);
+  control.value = selectedStatus;
+}
+
+function setIssueStatusBusy(control, isBusy) {
+  const wrapper = control.closest("[data-issue-status-control]");
+  const article = control.closest(".issue-card");
+  control.disabled = isBusy;
+  wrapper?.classList.toggle("is-busy", isBusy);
+  article?.setAttribute("aria-busy", String(isBusy));
+  for (const button of article?.querySelectorAll("[data-action]") || []) {
+    button.disabled = isBusy;
+  }
+}
+
+function configureInlineStatusControl(item, issue) {
+  const control = item.querySelector("[data-issue-status]");
+  const label = item.querySelector("[data-issue-status-label]");
+  const hint = item.querySelector("[data-issue-status-hint]");
+  const error = item.querySelector("[data-issue-status-error]");
+  const controlId = "issue-status-" + issue.id;
+  const hintId = "issue-status-hint-" + issue.id;
+  const errorId = "issue-status-error-" + issue.id;
+  const pending = state.statusUpdates.get(issue.id);
+  const allowedStatuses = getAllowedStatusTransitions(issue.status);
+
+  control.id = controlId;
+  control.dataset.id = issue.id;
+  control.dataset.kind = "status";
+  control.setAttribute("aria-describedby", hintId + " " + errorId);
+  label.htmlFor = controlId;
+  label.textContent = "Статус дефекта «" + issue.title + "»";
+  hint.id = hintId;
+  hint.textContent = formatStatusTransitionHint(allowedStatuses);
+  error.id = errorId;
+  setStatusOptions(control, [issue.status, ...allowedStatuses], issue.status);
+  control.title = "Изменить статус";
+  setInlineStatusValue(control, pending?.nextStatus || issue.status);
+  setIssueStatusBusy(control, Boolean(pending));
+}
+
+function issueMatchesActiveFilters(issue) {
+  const query = state.filters.q.toLocaleLowerCase("ru");
+  const searchableText = (issue.title + "\n" + issue.description).toLocaleLowerCase("ru");
+  return (
+    (!query || searchableText.includes(query)) &&
+    (!state.filters.status || issue.status === state.filters.status) &&
+    (!state.filters.severity || issue.severity === state.filters.severity)
+  );
+}
+
+function applyUpdatedIssue(updatedIssue) {
+  const nextItems = state.items.filter((issue) => issue.id !== updatedIssue.id);
+  if (issueMatchesActiveFilters(updatedIssue)) nextItems.push(updatedIssue);
+  nextItems.sort(
+    (left, right) =>
+      right.updatedAt.localeCompare(left.updatedAt) || left.id.localeCompare(right.id)
+  );
+  state.items = nextItems;
+  state.total = nextItems.length;
+  if (state.selectedIssue?.id === updatedIssue.id) state.selectedIssue = updatedIssue;
+  renderIssues();
+}
+
+function findRenderedStatusControl(issueId) {
+  return elements.issueList.querySelector(
+    '[data-issue-status][data-id="' + issueId + '"]'
+  );
+}
+
+function showInlineStatusError(control, message) {
+  const error = control.closest(".issue-card")?.querySelector("[data-issue-status-error]");
+  if (!error) return;
+  error.textContent = message;
+  error.hidden = false;
 }
 
 function renderIssues() {
@@ -326,7 +494,6 @@ function renderIssues() {
     heading.textContent = issue.title;
     item.querySelector("[data-issue-description]").textContent = issue.description;
     setBadge(item.querySelector("[data-issue-severity]"), "severity", issue.severity);
-    setBadge(item.querySelector("[data-issue-status]"), "status", issue.status);
 
     const updated = item.querySelector("[data-issue-updated]");
     updated.dateTime = issue.updatedAt;
@@ -335,6 +502,7 @@ function renderIssues() {
     for (const button of item.querySelectorAll("[data-action]")) {
       button.dataset.id = issue.id;
     }
+    configureInlineStatusControl(item, issue);
 
     fragment.append(item);
   }
@@ -417,6 +585,157 @@ function restoreDialogFocus(dialog) {
   if (dialog._returnFocus?.isConnected) dialog._returnFocus.focus();
 }
 
+function showUnsavedConfirmation(
+  sourceDialog,
+  description,
+  fallbackFocusTarget,
+  { preferFallbackFocus = false } = {}
+) {
+  if (elements.unsavedDialog.open) return;
+
+  state.unsavedSourceDialog = sourceDialog;
+  elements.unsavedDescription.textContent = description;
+
+  const activeElement = document.activeElement;
+  const activeElementIsInSource =
+    activeElement instanceof HTMLElement &&
+    activeElement !== sourceDialog &&
+    sourceDialog.contains(activeElement);
+  const returnFocusTarget =
+    !preferFallbackFocus && activeElementIsInSource
+      ? activeElement
+      : fallbackFocusTarget;
+  showDialog(elements.unsavedDialog, returnFocusTarget, elements.continueEditing);
+}
+
+function clearWorkspaceError() {
+  elements.workspaceInput.removeAttribute("aria-invalid");
+  elements.workspaceError.textContent = "";
+  elements.workspaceError.hidden = true;
+}
+
+function showWorkspaceError(message) {
+  elements.workspaceInput.setAttribute("aria-invalid", "true");
+  elements.workspaceError.textContent = message;
+  elements.workspaceError.hidden = false;
+  elements.workspaceInput.focus();
+}
+
+function workspaceFormHasChanges() {
+  return normalizeWorkspaceId(elements.workspaceInput.value) !== state.workspaceId;
+}
+
+function openWorkspaceDialog(trigger) {
+  if (state.submitting || state.deleting) {
+    announce("Дождитесь завершения текущей операции и повторите попытку.");
+    return;
+  }
+
+  clearOperationStatus();
+  clearWorkspaceError();
+  elements.workspaceInput.value = state.workspaceId;
+  showDialog(elements.workspaceDialog, trigger, elements.workspaceInput);
+  window.setTimeout(() => elements.workspaceInput.select(), 0);
+}
+
+function requestWorkspaceDialogClose() {
+  if (!elements.workspaceDialog.open || elements.unsavedDialog.open) return;
+
+  if (!workspaceFormHasChanges()) {
+    closeDialog(elements.workspaceDialog);
+    return;
+  }
+
+  showUnsavedConfirmation(
+    elements.workspaceDialog,
+    "Новый Workspace ID не будет сохранён. Текущий Workspace останется активным.",
+    elements.workspaceInput,
+    { preferFallbackFocus: true }
+  );
+}
+
+function resetApiInspector() {
+  elements.apiEmpty.textContent = "Загружаем данные выбранного Workspace…";
+  elements.apiEmpty.hidden = false;
+  elements.apiDetails.hidden = true;
+}
+
+async function handleWorkspaceSubmit(event) {
+  event.preventDefault();
+  clearWorkspaceError();
+
+  const workspaceId = normalizeWorkspaceId(elements.workspaceInput.value);
+  if (!workspaceId) {
+    showWorkspaceError("Введите Workspace ID.");
+    return;
+  }
+  if (!UUID_PATTERN.test(workspaceId)) {
+    showWorkspaceError(
+      "Введите UUID в формате 123e4567-e89b-12d3-a456-426614174000."
+    );
+    return;
+  }
+  if (workspaceId === state.workspaceId) {
+    elements.workspaceInput.value = workspaceId;
+    closeDialog(elements.workspaceDialog);
+    announce("Workspace не изменён.");
+    return;
+  }
+
+  window.clearTimeout(searchTimer);
+  state.workspaceRevision += 1;
+  const workspaceRevision = state.workspaceRevision;
+  state.workspaceId = workspaceId;
+  state.items = [];
+  state.total = 0;
+  state.selectedIssue = null;
+  state.formSnapshot = null;
+  state.openingIssue = false;
+  state.statusUpdates.clear();
+  elements.issueList.replaceChildren();
+  elements.filterQuery.value = "";
+  elements.filterStatus.value = "";
+  elements.filterSeverity.value = "";
+  syncFilters();
+  displayWorkspaceId(workspaceId);
+  resetApiInspector();
+
+  try {
+    localStorage.setItem(WORKSPACE_STORAGE_KEY, workspaceId);
+    state.workspacePersistent = true;
+  } catch {
+    state.workspacePersistent = false;
+  }
+
+  closeDialog(elements.workspaceDialog);
+  const loaded = await loadIssues();
+  if (workspaceRevision !== state.workspaceRevision) return;
+
+  if (!loaded) {
+    showOperationStatus(
+      "Workspace изменён, но загрузить дефекты не удалось." +
+        (state.workspacePersistent
+          ? ""
+          : " Новый UUID также не сохранится после перезагрузки или закрытия вкладки."),
+      { isError: true }
+    );
+    return;
+  }
+
+  if (!state.workspacePersistent) {
+    showOperationStatus(
+      "Workspace изменён только до перезагрузки или закрытия вкладки: " +
+        "браузер запретил локальное сохранение.",
+      { isError: true }
+    );
+    return;
+  }
+
+  showOperationStatus(
+    "Workspace изменён. В списке: " + state.total + " " + issueWord(state.total) + "."
+  );
+}
+
 function populateDetails(issue) {
   state.selectedIssue = issue;
   elements.detailsTitle.textContent = issue.title;
@@ -436,6 +755,7 @@ function populateDetails(issue) {
 
 async function fetchIssueAndOpen(issueId, trigger, mode) {
   if (state.openingIssue) return;
+  const workspaceRevisionAtStart = state.workspaceRevision;
   state.openingIssue = true;
   trigger.disabled = true;
   try {
@@ -447,6 +767,9 @@ async function fetchIssueAndOpen(issueId, trigger, mode) {
       openIssueForm(issue, trigger);
     }
   } catch (error) {
+    if (error.name === "AbortError") {
+      return;
+    }
     if (error instanceof ApiError && error.status === 404) {
       announce("Дефект уже удалён. Список обновлён.");
       await loadIssues({ inspectRequest: false });
@@ -455,7 +778,9 @@ async function fetchIssueAndOpen(issueId, trigger, mode) {
     }
   } finally {
     trigger.disabled = false;
-    state.openingIssue = false;
+    if (workspaceRevisionAtStart === state.workspaceRevision) {
+      state.openingIssue = false;
+    }
   }
 }
 
@@ -527,22 +852,32 @@ function requestIssueDialogClose() {
     return;
   }
 
-  if (state.formMode === "create") {
-    elements.unsavedDescription.textContent =
-      "Данные нового дефекта ещё не сохранены. Если закрыть форму, они будут потеряны.";
-  } else {
-    elements.unsavedDescription.textContent =
-      "Изменения в дефекте ещё не сохранены. Если закрыть форму, они будут потеряны.";
+  showUnsavedConfirmation(
+    elements.issueDialog,
+    state.formMode === "create"
+      ? "Данные нового дефекта ещё не сохранены. Если закрыть форму, они будут потеряны."
+      : "Изменения в дефекте ещё не сохранены. Если закрыть форму, они будут потеряны.",
+    elements.titleInput
+  );
+}
+
+function configureFormStatusControl(issue) {
+  if (!issue) {
+    setStatusOptions(elements.statusInput, STATUS_FLOW, "open");
+    elements.statusInput.disabled = false;
+    elements.statusHint.textContent =
+      "При создании можно выбрать начальный статус. Дальнейшие изменения выполняются по статусной модели.";
+    return;
   }
 
-  const activeElement = document.activeElement;
-  const returnFocusTarget =
-    activeElement instanceof HTMLElement &&
-    activeElement !== elements.issueDialog &&
-    elements.issueDialog.contains(activeElement)
-      ? activeElement
-      : elements.titleInput;
-  showDialog(elements.unsavedDialog, returnFocusTarget, elements.continueEditing);
+  const allowedStatuses = getAllowedStatusTransitions(issue.status);
+  setStatusOptions(
+    elements.statusInput,
+    [issue.status, ...allowedStatuses],
+    issue.status
+  );
+  elements.statusInput.disabled = false;
+  elements.statusHint.textContent = formatStatusTransitionHint(allowedStatuses);
 }
 
 function validateClientPayload(payload) {
@@ -561,6 +896,12 @@ function validateClientPayload(payload) {
   }
   if (!Object.hasOwn(STATUS_LABELS, payload.status)) {
     errors.status = "Выберите допустимый статус.";
+  } else if (
+    state.formMode === "edit" &&
+    state.selectedIssue &&
+    !isAllowedStatusTransition(state.selectedIssue.status, payload.status)
+  ) {
+    errors.status = "Выберите один из доступных переходов статуса.";
   }
   return errors;
 }
@@ -579,13 +920,13 @@ function openIssueForm(issue, trigger) {
     elements.titleInput.value = issue.title;
     elements.descriptionInput.value = issue.description;
     elements.severityInput.value = issue.severity;
-    elements.statusInput.value = issue.status;
+    configureFormStatusControl(issue);
   } else {
     elements.dialogEyebrow.textContent = "Новый дефект";
     elements.dialogTitle.textContent = "Создать дефект";
     elements.submitIssue.textContent = "Создать";
     elements.severityInput.value = "medium";
-    elements.statusInput.value = "open";
+    configureFormStatusControl(null);
   }
 
   updateDescriptionCount();
@@ -643,10 +984,42 @@ async function handleIssueSubmit(event) {
     );
     elements.issuesTitle.focus();
   } catch (error) {
+    if (error.name === "AbortError") return;
     const fields = error.payload?.error?.fields;
     if (error instanceof ApiError && error.status === 422 && fields) {
       showFieldErrors(fields);
       if (fields._body) showFormError(fields._body);
+    } else if (isStatusTransitionConflict(error) && state.selectedIssue) {
+      try {
+        const latestIssue = await api.get(state.selectedIssue.id, false);
+        state.selectedIssue = latestIssue;
+        state.formSnapshot.status = latestIssue.status;
+        configureFormStatusControl(latestIssue);
+        applyUpdatedIssue(latestIssue);
+        elements.issueDialog._returnFocus =
+          elements.issueList.querySelector(
+            '[data-action="edit"][data-id="' + latestIssue.id + '"]'
+          ) || elements.issuesTitle;
+        const allowedStatuses = getAllowedStatusTransitions(latestIssue.status);
+        showFieldErrors({
+          status:
+            "Статус уже изменился. " +
+            formatStatusTransitionHint(allowedStatuses) +
+            " Остальные данные формы сохранены."
+        });
+        window.setTimeout(() => {
+          (elements.statusInput.disabled
+            ? elements.titleInput
+            : elements.statusInput
+          ).focus();
+        }, 0);
+      } catch (refreshError) {
+        if (refreshError.name === "AbortError") return;
+        showFormError(
+          "Статус уже изменился, но получить актуальные данные не удалось. " +
+            getErrorMessage(refreshError)
+        );
+      }
     } else if (error instanceof ApiError && error.status === 404) {
       closeDialog(elements.issueDialog, { restoreFocus: false });
       await loadIssues({ inspectRequest: false });
@@ -690,6 +1063,9 @@ async function handleDelete() {
     );
     elements.issuesTitle.focus();
   } catch (error) {
+    if (error.name === "AbortError") {
+      return;
+    }
     if (error instanceof ApiError && error.status === 404) {
       closeDialog(elements.deleteDialog, { restoreFocus: false });
       await loadIssues({ inspectRequest: false });
@@ -704,9 +1080,165 @@ async function handleDelete() {
   }
 }
 
+async function handleInlineStatusChange(control) {
+  const issue = state.items.find((item) => item.id === control.dataset.id);
+  if (!issue) return;
+
+  const workspaceRevisionAtStart = state.workspaceRevision;
+  const listTokenAtStart = state.listToken;
+  const previousStatus = issue.status;
+  const nextStatus = control.value;
+  if (nextStatus === previousStatus) {
+    setInlineStatusValue(control, previousStatus);
+    return;
+  }
+  if (
+    !Object.hasOwn(STATUS_LABELS, nextStatus) ||
+    !isAllowedStatusTransition(previousStatus, nextStatus)
+  ) {
+    setInlineStatusValue(control, previousStatus);
+    showInlineStatusError(
+      control,
+      "Выберите один из доступных переходов статуса."
+    );
+    control.focus();
+    return;
+  }
+  if (state.statusUpdates.has(issue.id)) {
+    setInlineStatusValue(control, state.statusUpdates.get(issue.id).nextStatus);
+    return;
+  }
+
+  clearOperationStatus();
+  const existingError = control
+    .closest(".issue-card")
+    ?.querySelector("[data-issue-status-error]");
+  if (existingError) {
+    existingError.textContent = "";
+    existingError.hidden = true;
+  }
+
+  state.statusUpdates.set(issue.id, { previousStatus, nextStatus });
+  setInlineStatusValue(control, nextStatus);
+  setIssueStatusBusy(control, true);
+
+  try {
+    const updatedIssue = await api.update(issue.id, { status: nextStatus });
+    if (
+      !updatedIssue ||
+      updatedIssue.id !== issue.id ||
+      !Object.hasOwn(STATUS_LABELS, updatedIssue.status)
+    ) {
+      throw new ApiError("API вернул неожиданный формат дефекта");
+    }
+
+    if (workspaceRevisionAtStart === state.workspaceRevision) {
+      state.statusUpdates.delete(issue.id);
+    }
+    if (state.listToken !== listTokenAtStart) {
+      const refreshed = await loadIssues({ inspectRequest: false });
+      if (workspaceRevisionAtStart !== state.workspaceRevision) return;
+      if (!refreshed) {
+        const newerLoadInProgress = elements.loadError.hidden;
+        showOperationStatus(
+          newerLoadInProgress
+            ? "Статус дефекта «" + updatedIssue.title + "» изменён. Список обновляется."
+            : "Статус дефекта «" +
+                updatedIssue.title +
+                "» изменён, но обновить список не удалось.",
+          { isError: !newerLoadInProgress }
+        );
+        (newerLoadInProgress ? elements.issuesTitle : elements.retryLoad).focus();
+        return;
+      }
+    } else {
+      applyUpdatedIssue(updatedIssue);
+    }
+
+    const nextControl = findRenderedStatusControl(issue.id);
+    const statusLabel = STATUS_LABELS[updatedIssue.status];
+    const hiddenByFilter = !nextControl;
+    showOperationStatus(
+      "Статус дефекта «" + updatedIssue.title + "» изменён на «" + statusLabel + "»." +
+        (hiddenByFilter ? " Карточка скрыта текущим фильтром." : "")
+    );
+
+    if (nextControl && !nextControl.disabled) {
+      nextControl.focus();
+    } else {
+      elements.issuesTitle.focus();
+    }
+  } catch (error) {
+    if (workspaceRevisionAtStart === state.workspaceRevision) {
+      state.statusUpdates.delete(issue.id);
+    }
+
+    if (error.name === "AbortError") return;
+
+    if (isStatusTransitionConflict(error)) {
+      const refreshed = await loadIssues({ inspectRequest: false });
+      if (workspaceRevisionAtStart !== state.workspaceRevision) return;
+      showOperationStatus(
+        refreshed
+          ? "Статус дефекта уже изменился. Список обновлён."
+          : "Статус дефекта уже изменился, но обновить список не удалось.",
+        { isError: true }
+      );
+      const refreshedControl = findRenderedStatusControl(issue.id);
+      const focusTarget =
+        refreshedControl && !refreshedControl.disabled
+          ? refreshedControl
+          : refreshed
+            ? elements.issuesTitle
+            : elements.retryLoad;
+      focusTarget.focus();
+      return;
+    }
+
+    if (error instanceof ApiError && error.status === 404) {
+      const refreshed = await loadIssues({ inspectRequest: false });
+      if (workspaceRevisionAtStart !== state.workspaceRevision) return;
+      showOperationStatus(
+        refreshed
+          ? "Дефект уже удалён. Список обновлён."
+          : "Дефект уже удалён, но обновить список не удалось.",
+        { isError: true }
+      );
+      (refreshed ? elements.issuesTitle : elements.retryLoad).focus();
+      return;
+    }
+
+    renderIssues();
+    const restoredControl = findRenderedStatusControl(issue.id);
+    const previousLabel = STATUS_LABELS[previousStatus];
+    const message =
+      "Не удалось изменить статус. Сохранён прежний статус «" + previousLabel + "». " +
+      getErrorMessage(error);
+
+    if (restoredControl) {
+      showInlineStatusError(restoredControl, message);
+      restoredControl.focus();
+    } else {
+      showOperationStatus(message, { isError: true });
+      elements.issuesTitle.focus();
+    }
+  } finally {
+    if (control.isConnected) setIssueStatusBusy(control, false);
+  }
+}
+
 let searchTimer;
 
 function bindEvents() {
+  elements.editWorkspace.addEventListener("click", () => {
+    openWorkspaceDialog(elements.editWorkspace);
+  });
+  document.querySelectorAll("[data-close-workspace]").forEach((button) => {
+    button.addEventListener("click", requestWorkspaceDialogClose);
+  });
+  elements.workspaceForm.addEventListener("submit", handleWorkspaceSubmit);
+  elements.workspaceInput.addEventListener("input", clearWorkspaceError);
+
   document.querySelectorAll("[data-open-create]").forEach((button) => {
     button.addEventListener("click", () => openIssueForm(null, button));
   });
@@ -743,7 +1275,26 @@ function bindEvents() {
   });
 
   elements.resetFilters.addEventListener("click", resetFilters);
-  elements.retryLoad.addEventListener("click", loadIssues);
+  elements.retryLoad.addEventListener("click", async () => {
+    const loaded = await loadIssues();
+    if (!loaded) return;
+
+    if (state.workspacePersistent) {
+      clearOperationStatus();
+    } else {
+      showOperationStatus(
+        "Workspace действует только до перезагрузки или закрытия вкладки: " +
+          "браузер запретил локальное сохранение.",
+        { isError: true }
+      );
+    }
+  });
+
+  elements.issueList.addEventListener("change", (event) => {
+    if (!(event.target instanceof HTMLSelectElement)) return;
+    if (!event.target.matches("[data-issue-status]")) return;
+    handleInlineStatusChange(event.target);
+  });
 
   elements.issueList.addEventListener("click", async (event) => {
     const button = event.target.closest("[data-action]");
@@ -755,7 +1306,7 @@ function bindEvents() {
       await fetchIssueAndOpen(issue.id, button, "details");
     } else if (button.dataset.action === "edit") {
       await fetchIssueAndOpen(issue.id, button, "edit");
-    } else {
+    } else if (button.dataset.action === "delete") {
       openDeleteDialog(issue, button);
     }
   });
@@ -789,10 +1340,13 @@ function bindEvents() {
 
   elements.continueEditing.addEventListener("click", () => {
     closeDialog(elements.unsavedDialog);
+    state.unsavedSourceDialog = null;
   });
   elements.discardChanges.addEventListener("click", () => {
+    const sourceDialog = state.unsavedSourceDialog;
+    state.unsavedSourceDialog = null;
     closeDialog(elements.unsavedDialog, { restoreFocus: false });
-    closeDialog(elements.issueDialog);
+    if (sourceDialog) closeDialog(sourceDialog);
   });
 
   elements.cancelDelete.addEventListener("click", () => {
@@ -801,6 +1355,7 @@ function bindEvents() {
   elements.confirmDelete.addEventListener("click", handleDelete);
 
   for (const dialog of [
+    elements.workspaceDialog,
     elements.detailsDialog,
     elements.issueDialog,
     elements.unsavedDialog,
@@ -811,6 +1366,8 @@ function bindEvents() {
       if (event.target === dialog && !state.submitting && !state.deleting) {
         if (dialog === elements.issueDialog) {
           requestIssueDialogClose();
+        } else if (dialog === elements.workspaceDialog) {
+          requestWorkspaceDialogClose();
         } else {
           closeDialog(dialog);
         }
@@ -826,6 +1383,12 @@ function bindEvents() {
     if (issueFormHasChanges()) {
       event.preventDefault();
       requestIssueDialogClose();
+    }
+  });
+  elements.workspaceDialog.addEventListener("cancel", (event) => {
+    if (workspaceFormHasChanges()) {
+      event.preventDefault();
+      requestWorkspaceDialogClose();
     }
   });
   elements.deleteDialog.addEventListener("cancel", (event) => {

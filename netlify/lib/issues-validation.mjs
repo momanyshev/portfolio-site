@@ -1,5 +1,22 @@
-export const ISSUE_SEVERITIES = ["low", "medium", "high", "critical"];
-export const ISSUE_STATUSES = ["open", "in_progress", "resolved"];
+export const ISSUE_SEVERITIES = ["low", "medium", "high", "critical", "blocker"];
+export const ISSUE_STATUSES = ["open", "in_progress", "testing", "resolved"];
+export const ISSUE_STATUS_TRANSITIONS = {
+  open: ["in_progress"],
+  in_progress: ["testing"],
+  testing: ["in_progress", "resolved"],
+  resolved: ["open"]
+};
+
+export function getAllowedIssueStatusTransitions(status) {
+  return ISSUE_STATUS_TRANSITIONS[status] || [];
+}
+
+export function isAllowedIssueStatusTransition(currentStatus, nextStatus) {
+  return (
+    nextStatus === currentStatus ||
+    getAllowedIssueStatusTransitions(currentStatus).includes(nextStatus)
+  );
+}
 
 const MUTABLE_FIELDS = new Set(["title", "description", "severity", "status"]);
 const PROTECTED_FIELDS = new Set(["id", "createdAt", "updatedAt"]);

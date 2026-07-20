@@ -114,7 +114,7 @@ paths:
                   title: Error banner overlaps the header
                   description: At 320 px viewport width the error banner covers the main navigation.
                   severity: medium
-                  status: in_progress
+                  status: testing
       responses:
         "201":
           description: Issue created.
@@ -189,7 +189,10 @@ paths:
       description: |
         Updates one or more mutable fields. At least one field is required.
         Fields omitted from the request remain unchanged. The server preserves
-        `id` and `createdAt` and advances `updatedAt`.
+        `id` and `createdAt` and advances `updatedAt`. When `status` changes,
+        the forward flow is `open` → `in_progress` → `testing` → `resolved`.
+        Additionally, `testing` may return to `in_progress`, and `resolved` may
+        reopen as `open`. Sending the current status is also allowed.
       operationId: updateIssue
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
@@ -201,13 +204,15 @@ paths:
             schema:
               $ref: "#/components/schemas/IssuePatch"
             examples:
-              resolve:
+              startWork:
+                summary: Move an open issue to in progress
                 value:
-                  status: resolved
-              reprioritize:
+                  status: in_progress
+              sendToTestingAndReprioritize:
+                summary: Move an in-progress issue to testing and change severity
                 value:
                   severity: critical
-                  status: in_progress
+                  status: testing
       responses:
         "200":
           description: Updated issue.
@@ -229,7 +234,7 @@ paths:
         "405":
           $ref: "#/components/responses/ItemMethodNotAllowed"
         "409":
-          $ref: "#/components/responses/MutationConflict"
+          $ref: "#/components/responses/PatchConflict"
         "415":
           $ref: "#/components/responses/UnsupportedMediaType"
         "422":
@@ -340,12 +345,18 @@ components:
         - medium
         - high
         - critical
+        - blocker
       example: high
     IssueStatus:
       type: string
+      description: |
+        On PATCH, the forward flow is `open` → `in_progress` → `testing` →
+        `resolved`; `testing` may return to `in_progress`, and `resolved` may
+        reopen as `open`. POST may choose any initial status.
       enum:
         - open
         - in_progress
+        - testing
         - resolved
       example: open
     Issue:
@@ -436,7 +447,9 @@ components:
         severity:
           $ref: "#/components/schemas/Severity"
         status:
-          $ref: "#/components/schemas/IssueStatus"
+          allOf:
+            - $ref: "#/components/schemas/IssueStatus"
+          description: May remain unchanged or use one of the documented workflow transitions.
     IssueList:
       type: object
       additionalProperties: false
@@ -469,6 +482,7 @@ components:
         - METHOD_NOT_ALLOWED
         - WORKSPACE_LIMIT_REACHED
         - CONCURRENT_MODIFICATION
+        - INVALID_STATUS_TRANSITION
         - INTERNAL_ERROR
     FieldErrors:
       type: object
@@ -536,7 +550,7 @@ components:
                   code: INVALID_QUERY
                   message: Query validation failed
                   fields:
-                    severity: "Query must be one of: low, medium, high, critical"
+                    severity: "Query must be one of: low, medium, high, critical, blocker"
                   requestId: d2865864-225a-4026-a2d7-0c063a06f985
     CreateBadRequest:
       description: |
@@ -707,6 +721,38 @@ components:
               message: The workspace changed concurrently. Retry the request.
               fields: {}
               requestId: d2865864-225a-4026-a2d7-0c063a06f985
+    PatchConflict:
+      description: |
+        The status change is not allowed by the workflow
+        (`INVALID_STATUS_TRANSITION`), or a concurrent update could not be
+        committed after retries (`CONCURRENT_MODIFICATION`).
+      headers:
+        Cache-Control:
+          $ref: "#/components/headers/CacheControl"
+        Vary:
+          $ref: "#/components/headers/VaryWorkspace"
+        X-Request-Id:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          examples:
+            invalidStatusTransition:
+              value:
+                error:
+                  code: INVALID_STATUS_TRANSITION
+                  message: Status transition is not allowed
+                  fields:
+                    status: Status can only remain "open" or change to "in_progress"
+                  requestId: d2865864-225a-4026-a2d7-0c063a06f985
+            concurrentModification:
+              value:
+                error:
+                  code: CONCURRENT_MODIFICATION
+                  message: The workspace changed concurrently. Retry the request.
+                  fields: {}
+                  requestId: d2865864-225a-4026-a2d7-0c063a06f985
     CollectionMethodNotAllowed:
       description: Unsupported method for the collection resource (`METHOD_NOT_ALLOWED`).
       headers:

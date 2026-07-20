@@ -138,7 +138,7 @@
                   "  pm.expect(issue).to.include({",
                   "    title: \"Кнопка отправки неактивна\",",
                   "    description: \"После заполнения обязательных полей кнопка остаётся неактивной.\",",
-                  "    severity: \"high\",",
+                  "    severity: \"blocker\",",
                   "    status: \"open\"",
                   "  });",
                   "  pm.expect(issue.id).to.match(issueIdPattern);",
@@ -178,7 +178,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"title\": \"Кнопка отправки неактивна\",\n  \"description\": \"После заполнения обязательных полей кнопка остаётся неактивной.\",\n  \"severity\": \"high\"\n}",
+              "raw": "{\n  \"title\": \"Кнопка отправки неактивна\",\n  \"description\": \"После заполнения обязательных полей кнопка остаётся неактивной.\",\n  \"severity\": \"blocker\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -208,12 +208,12 @@
                   "  pm.expect(body.total).to.eql(body.items.length);",
                   "  pm.expect(body.items.every(function (issue) {",
                   "    const searchableText = `${issue.title}\\n${issue.description}`.toLocaleLowerCase(\"ru\");",
-                  "    return issue.status === \"open\" && searchableText.includes(\"кнопка\");",
+                  "    return issue.status === \"open\" && issue.severity === \"blocker\" && searchableText.includes(\"кнопка\");",
                   "  })).to.be.true;",
                   "",
                   "  const issue = body.items.find(function (item) { return item.id === issueId; });",
                   "  pm.expect(issue, \"Созданный дефект отсутствует в списке\").to.be.an(\"object\");",
-                  "  pm.expect(issue).to.include({ severity: \"high\", status: \"open\" });",
+                  "  pm.expect(issue).to.include({ severity: \"blocker\", status: \"open\" });",
                   "});"
                 ]
               }
@@ -230,7 +230,7 @@
                 "value": "{{workspaceId}}"
               }
             ],
-            "url": "{{baseUrl}}/api/issues?status=open&q=кнопка"
+            "url": "{{baseUrl}}/api/issues?status=open&severity=blocker&q=кнопка"
           },
           "response": []
         },
@@ -252,7 +252,7 @@
                   "    id: pm.collectionVariables.get(\"issueId\"),",
                   "    title: \"Кнопка отправки неактивна\",",
                   "    description: \"После заполнения обязательных полей кнопка остаётся неактивной.\",",
-                  "    severity: \"high\",",
+                  "    severity: \"blocker\",",
                   "    status: \"open\",",
                   "    createdAt: pm.collectionVariables.get(\"smokeCreatedAt\"),",
                   "    updatedAt: pm.collectionVariables.get(\"smokeUpdatedAt\")",
@@ -336,7 +336,123 @@
           "response": []
         },
         {
-          "name": "05 — Удалить дефект",
+          "name": "05 — Перевести дефект в тестирование",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Код ответа — 200\", function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Статус изменён на testing, остальные поля сохранены\", function () {",
+                  "  const issue = pm.response.json();",
+                  "  const previousUpdatedAt = pm.collectionVariables.get(\"smokeUpdatedAt\");",
+                  "  pm.expect(issue).to.include({",
+                  "    id: pm.collectionVariables.get(\"issueId\"),",
+                  "    title: \"Кнопка отправки неактивна\",",
+                  "    description: \"После заполнения обязательных полей кнопка остаётся неактивной.\",",
+                  "    severity: \"critical\",",
+                  "    status: \"testing\",",
+                  "    createdAt: pm.collectionVariables.get(\"smokeCreatedAt\")",
+                  "  });",
+                  "  pm.expect(Date.parse(issue.updatedAt)).to.be.above(Date.parse(previousUpdatedAt));",
+                  "  pm.collectionVariables.set(\"smokeUpdatedAt\", issue.updatedAt);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "X-Demo-Workspace-Id",
+                "value": "{{workspaceId}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"testing\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/api/issues/{{issueId}}"
+          },
+          "response": []
+        },
+        {
+          "name": "06 — Решить дефект",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Код ответа — 200\", function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Статус изменён на resolved, остальные поля сохранены\", function () {",
+                  "  const issue = pm.response.json();",
+                  "  const previousUpdatedAt = pm.collectionVariables.get(\"smokeUpdatedAt\");",
+                  "  pm.expect(issue).to.include({",
+                  "    id: pm.collectionVariables.get(\"issueId\"),",
+                  "    title: \"Кнопка отправки неактивна\",",
+                  "    description: \"После заполнения обязательных полей кнопка остаётся неактивной.\",",
+                  "    severity: \"critical\",",
+                  "    status: \"resolved\",",
+                  "    createdAt: pm.collectionVariables.get(\"smokeCreatedAt\")",
+                  "  });",
+                  "  pm.expect(Date.parse(issue.updatedAt)).to.be.above(Date.parse(previousUpdatedAt));",
+                  "  pm.collectionVariables.set(\"smokeUpdatedAt\", issue.updatedAt);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "X-Demo-Workspace-Id",
+                "value": "{{workspaceId}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"resolved\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/api/issues/{{issueId}}"
+          },
+          "response": []
+        },
+        {
+          "name": "07 — Удалить дефект",
           "event": [
             {
               "listen": "prerequest",
@@ -386,7 +502,7 @@
           "response": []
         },
         {
-          "name": "06 — Проверить удаление по ID",
+          "name": "08 — Проверить удаление по ID",
           "event": [
             {
               "listen": "test",
@@ -421,7 +537,7 @@
           "response": []
         },
         {
-          "name": "07 — Проверить пустой список и завершить teardown",
+          "name": "09 — Проверить пустой список и завершить teardown",
           "event": [
             {
               "listen": "test",
@@ -465,7 +581,7 @@
     },
     {
       "name": "02 — Validation",
-      "description": "Data-driven проверки тела POST/PATCH и query-параметров. Каждая вложенная папка запускается отдельно со своим data-файлом.",
+      "description": "Data-driven проверки тела POST/PATCH, query-параметров и статусной модели. Каждая вложенная папка запускается отдельно со своим data-файлом.",
       "event": [],
       "item": [
         {
@@ -842,6 +958,234 @@
                   }
                 ],
                 "url": "{{baseUrl}}/api/issues"
+              },
+              "response": []
+            }
+          ]
+        },
+        {
+          "name": "02.4 — Status transitions (data-driven)",
+          "description": "Запускайте с tests/api/data/status-transition-cases.json. Каждая итерация проверяет один переход в отдельном workspace и удаляет фикстуру.",
+          "event": [],
+          "item": [
+            {
+              "name": "01 — Setup: создать дефект в исходном статусе",
+              "event": [
+                {
+                  "listen": "prerequest",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.collectionVariables.set(\"transitionWorkspaceId\", pm.variables.replaceIn(\"{{$guid}}\"));",
+                      "pm.collectionVariables.unset(\"transitionIssueId\");",
+                      "pm.variables.set(\"transitionFromStatus\", pm.iterationData.get(\"fromStatus\") || \"open\");"
+                    ]
+                  }
+                },
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Setup возвращает 201\", function () {",
+                      "  pm.response.to.have.status(201);",
+                      "});",
+                      "",
+                      "if (pm.response.code === 201) {",
+                      "  const issue = pm.response.json();",
+                      "  pm.expect(issue.status).to.eql(pm.variables.get(\"transitionFromStatus\"));",
+                      "  pm.collectionVariables.set(\"transitionIssueId\", issue.id);",
+                      "  pm.collectionVariables.set(\"transitionOriginalUpdatedAt\", issue.updatedAt);",
+                      "}"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "auth": {
+                  "type": "noauth"
+                },
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "X-Demo-Workspace-Id",
+                    "value": "{{transitionWorkspaceId}}"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"title\": \"Фикстура статусной модели\",\n  \"description\": \"Описание фикстуры для проверки переходов статуса.\",\n  \"severity\": \"medium\",\n  \"status\": \"{{transitionFromStatus}}\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": "{{baseUrl}}/api/issues"
+              },
+              "response": []
+            },
+            {
+              "name": "02 — Проверить переход статуса",
+              "event": [
+                {
+                  "listen": "prerequest",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "const dataBody = pm.iterationData.get(\"requestBody\");",
+                      "const fallbackBody = { status: \"resolved\" };",
+                      "pm.variables.set(\"transitionRequestBody\", JSON.stringify(dataBody === undefined ? fallbackBody : dataBody));",
+                      "pm.variables.set(\"transitionCaseName\", pm.iterationData.get(\"caseName\") || \"open → resolved запрещён\");",
+                      "pm.variables.set(\"transitionExpectedStatus\", String(pm.iterationData.get(\"expectedStatus\") || 409));",
+                      "pm.variables.set(\"transitionExpectedCode\", pm.iterationData.get(\"expectedCode\") || \"INVALID_STATUS_TRANSITION\");",
+                      "const dataFields = pm.iterationData.get(\"expectedFields\");",
+                      "pm.variables.set(\"transitionExpectedFields\", JSON.stringify(Array.isArray(dataFields) ? dataFields : [\"status\"]));",
+                      "pm.variables.set(\"transitionExpectedPersistedStatus\", pm.iterationData.get(\"expectedPersistedStatus\") || \"open\");",
+                      "pm.variables.set(\"transitionExpectedPersistedTitle\", pm.iterationData.get(\"expectedPersistedTitle\") || \"Фикстура статусной модели\");",
+                      "pm.variables.set(\"transitionExpectedPersistedSeverity\", pm.iterationData.get(\"expectedPersistedSeverity\") || \"medium\");"
+                    ]
+                  }
+                },
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "const expectedStatus = Number(pm.variables.get(\"transitionExpectedStatus\"));",
+                      "const caseName = pm.variables.get(\"transitionCaseName\");",
+                      "",
+                      "pm.test(`Код ответа — ${expectedStatus}: ${caseName}`, function () {",
+                      "  pm.expect(pm.response.code).to.eql(expectedStatus);",
+                      "});",
+                      "",
+                      "if (expectedStatus === 200) {",
+                      "  pm.test(\"Успешный PATCH возвращает ожидаемое состояние\", function () {",
+                      "    const issue = pm.response.json();",
+                      "    pm.expect(issue.status).to.eql(pm.variables.get(\"transitionExpectedPersistedStatus\"));",
+                      "    pm.expect(issue.title).to.eql(pm.variables.get(\"transitionExpectedPersistedTitle\"));",
+                      "    pm.expect(issue.severity).to.eql(pm.variables.get(\"transitionExpectedPersistedSeverity\"));",
+                      "  });",
+                      "} else {",
+                      "  pm.test(\"Запрещённый переход возвращает контрактную ошибку\", function () {",
+                      "    const body = pm.response.json();",
+                      "    const expectedFields = JSON.parse(pm.variables.get(\"transitionExpectedFields\"));",
+                      "    pm.expect(body.error.code).to.eql(pm.variables.get(\"transitionExpectedCode\"));",
+                      "    expectedFields.forEach(function (field) {",
+                      "      pm.expect(body.error.fields).to.have.property(field);",
+                      "    });",
+                      "  });",
+                      "}"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "auth": {
+                  "type": "noauth"
+                },
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "X-Demo-Workspace-Id",
+                    "value": "{{transitionWorkspaceId}}"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{{transitionRequestBody}}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": "{{baseUrl}}/api/issues/{{transitionIssueId}}"
+              },
+              "response": []
+            },
+            {
+              "name": "03 — Проверить атомарно сохранённое состояние",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Контрольный GET возвращает 200\", function () {",
+                      "  pm.response.to.have.status(200);",
+                      "});",
+                      "",
+                      "pm.test(\"Сохранено ожидаемое состояние записи\", function () {",
+                      "  const issue = pm.response.json();",
+                      "  const mutationSucceeded = Number(pm.variables.get(\"transitionExpectedStatus\")) === 200;",
+                      "  pm.expect(issue.status).to.eql(pm.variables.get(\"transitionExpectedPersistedStatus\"));",
+                      "  pm.expect(issue.title).to.eql(pm.variables.get(\"transitionExpectedPersistedTitle\"));",
+                      "  pm.expect(issue.severity).to.eql(pm.variables.get(\"transitionExpectedPersistedSeverity\"));",
+                      "  if (mutationSucceeded) {",
+                      "    pm.expect(Date.parse(issue.updatedAt)).to.be.above(Date.parse(pm.collectionVariables.get(\"transitionOriginalUpdatedAt\")));",
+                      "  } else {",
+                      "    pm.expect(issue.updatedAt).to.eql(pm.collectionVariables.get(\"transitionOriginalUpdatedAt\"));",
+                      "  }",
+                      "});"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "auth": {
+                  "type": "noauth"
+                },
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "X-Demo-Workspace-Id",
+                    "value": "{{transitionWorkspaceId}}"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/issues/{{transitionIssueId}}"
+              },
+              "response": []
+            },
+            {
+              "name": "04 — Teardown: удалить фикстуру",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test(\"Teardown возвращает 204\", function () {",
+                      "  pm.response.to.have.status(204);",
+                      "});",
+                      "",
+                      "pm.collectionVariables.unset(\"transitionIssueId\");",
+                      "pm.collectionVariables.unset(\"transitionWorkspaceId\");",
+                      "pm.collectionVariables.unset(\"transitionOriginalUpdatedAt\");"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "auth": {
+                  "type": "noauth"
+                },
+                "method": "DELETE",
+                "header": [
+                  {
+                    "key": "X-Demo-Workspace-Id",
+                    "value": "{{transitionWorkspaceId}}"
+                  }
+                ],
+                "url": "{{baseUrl}}/api/issues/{{transitionIssueId}}"
               },
               "response": []
             }

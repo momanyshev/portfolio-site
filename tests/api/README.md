@@ -10,7 +10,8 @@ tests/api/
 ├── data/
 │   ├── post-validation-cases.json
 │   ├── patch-validation-cases.json
-│   └── query-validation-cases.json
+│   ├── query-validation-cases.json
+│   └── status-transition-cases.json
 ├── environments/
 │   └── api-lab.local.postman_environment.json
 └── README.md
@@ -18,10 +19,11 @@ tests/api/
 
 Папки коллекции:
 
-- `01 — CRUD smoke` — полный позитивный CRUD, проверка удаления и teardown;
+- `01 — CRUD smoke` — полный позитивный CRUD, включая `blocker`, цепочку `open → in_progress → testing → resolved`, фильтрацию по критичности, проверку удаления и teardown;
 - `02.1 — POST body (data-driven)` — негативная валидация POST;
 - `02.2 — PATCH body (data-driven)` — негативная валидация PATCH с отдельной фикстурой на каждой итерации;
 - `02.3 — Query (data-driven)` — негативная валидация query-параметров;
+- `02.4 — Status transitions (data-driven)` — полная матрица допустимых и запрещённых переходов, атомарность отказа и PATCH без `status`;
 - `03 — Protocol and contract` — workspace/id, JSON, Content-Type, методы, `Allow` и формат ошибок;
 - `04 — Workspace isolation` — чтение и мутации между двумя workspace и удаление обеих фикстур.
 
@@ -52,12 +54,12 @@ npm run dev
 
 ## Запуск через Newman
 
-Newman установлен как `devDependency`. Выполняйте команды из корня проекта через `npx newman`, чтобы использовать зафиксированную локальную версию.
+Newman установлен как `devDependency`. Выполняйте команды из корня проекта через `npx --no-install newman`, чтобы использовать зафиксированную локальную версию без скачивания другой.
 
 CRUD smoke:
 
 ```bash
-npx newman run tests/api/api-lab.postman_collection.json \
+npx --no-install newman run tests/api/api-lab.postman_collection.json \
   -e tests/api/environments/api-lab.local.postman_environment.json \
   --folder "01 — CRUD smoke"
 ```
@@ -65,7 +67,7 @@ npx newman run tests/api/api-lab.postman_collection.json \
 POST validation:
 
 ```bash
-npx newman run tests/api/api-lab.postman_collection.json \
+npx --no-install newman run tests/api/api-lab.postman_collection.json \
   -e tests/api/environments/api-lab.local.postman_environment.json \
   --folder "02.1 — POST body (data-driven)" \
   -d tests/api/data/post-validation-cases.json
@@ -74,7 +76,7 @@ npx newman run tests/api/api-lab.postman_collection.json \
 PATCH validation:
 
 ```bash
-npx newman run tests/api/api-lab.postman_collection.json \
+npx --no-install newman run tests/api/api-lab.postman_collection.json \
   -e tests/api/environments/api-lab.local.postman_environment.json \
   --folder "02.2 — PATCH body (data-driven)" \
   -d tests/api/data/patch-validation-cases.json
@@ -83,16 +85,25 @@ npx newman run tests/api/api-lab.postman_collection.json \
 Query validation:
 
 ```bash
-npx newman run tests/api/api-lab.postman_collection.json \
+npx --no-install newman run tests/api/api-lab.postman_collection.json \
   -e tests/api/environments/api-lab.local.postman_environment.json \
   --folder "02.3 — Query (data-driven)" \
   -d tests/api/data/query-validation-cases.json
 ```
 
+Status transitions:
+
+```bash
+npx --no-install newman run tests/api/api-lab.postman_collection.json \
+  -e tests/api/environments/api-lab.local.postman_environment.json \
+  --folder "02.4 — Status transitions (data-driven)" \
+  -d tests/api/data/status-transition-cases.json
+```
+
 Protocol and contract:
 
 ```bash
-npx newman run tests/api/api-lab.postman_collection.json \
+npx --no-install newman run tests/api/api-lab.postman_collection.json \
   -e tests/api/environments/api-lab.local.postman_environment.json \
   --folder "03 — Protocol and contract"
 ```
@@ -100,7 +111,7 @@ npx newman run tests/api/api-lab.postman_collection.json \
 Workspace isolation:
 
 ```bash
-npx newman run tests/api/api-lab.postman_collection.json \
+npx --no-install newman run tests/api/api-lab.postman_collection.json \
   -e tests/api/environments/api-lab.local.postman_environment.json \
   --folder "04 — Workspace isolation"
 ```
@@ -118,6 +129,14 @@ npx newman run tests/api/api-lab.postman_collection.json \
 | `expectedStatus` | Ожидаемый HTTP-статус |
 | `expectedCode` | Ожидаемый `error.code` |
 | `expectedFields` | Поля, которые должны присутствовать в `error.fields` |
+| `fromStatus` | Исходный статус фикстуры для `02.4` |
+| `expectedPersistedStatus` | Статус после контрольного GET в `02.4` |
+| `expectedPersistedTitle` | Заголовок после контрольного GET для проверки атомарности в `02.4` |
+| `expectedPersistedSeverity` | Критичность после контрольного GET в `02.4`; по умолчанию `medium` |
+
+Для `02.4 — Status transitions` строки дополнительно содержат исходный статус,
+тело PATCH и ожидаемое сохранённое состояние. Каждая итерация создаёт собственную
+фикстуру, выполняет контрольный GET и удаляет запись независимо от остальных строк.
 
 Без data-файла каждая validation-папка выполняет один встроенный fallback-сценарий. Для полного набора используйте команды с `-d`.
 

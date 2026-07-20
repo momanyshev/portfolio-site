@@ -70,13 +70,34 @@ test.describe("Адаптивная верстка", () => {
         page.getByRole("heading", { name: "Трекер дефектов", level: 1 })
       ).toBeVisible();
       await expect(
-        page.locator(".lab-hero").getByRole("button", { name: "Создать дефект" })
+        page
+          .getByRole("banner", { name: "Навигация QA Lab" })
+          .getByRole("button", { name: "Создать дефект" })
       ).toBeVisible();
       await expectNoHorizontalScroll(page);
 
       if (viewport.width === mobileViewport.width) {
         await expect(page.locator(".site-nav")).toBeHidden();
         await expect(page.getByRole("link", { name: "Вернуться к портфолио" })).toBeVisible();
+
+        const editWorkspace = page.getByRole("button", {
+          name: "Изменить Workspace ID"
+        });
+        const editWorkspaceBox = await editWorkspace.boundingBox();
+        expect(editWorkspaceBox).not.toBeNull();
+        expect(editWorkspaceBox!.width).toBeGreaterThanOrEqual(44);
+        expect(editWorkspaceBox!.height).toBeGreaterThanOrEqual(44);
+
+        await editWorkspace.click();
+        const workspaceDialog = page.getByRole("dialog", {
+          name: "Изменить Workspace"
+        });
+        await expect(workspaceDialog).toBeVisible();
+        await expect(workspaceDialog.locator(".dialog-actions")).toHaveCSS(
+          "flex-direction",
+          "column"
+        );
+        await expectNoHorizontalScroll(page);
       }
     });
   }

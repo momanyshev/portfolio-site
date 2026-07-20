@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { expect, type Page, test as base } from "@playwright/test";
+import { expect, type Locator, type Page, test as base } from "@playwright/test";
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const test = base.extend<{ workspaceId: string }>({
   workspaceId: async ({ context }, use) => {
@@ -20,20 +22,35 @@ function waitForApiResponse(page: Page, method: string, pathname: string) {
   });
 }
 
+function waitForWorkspaceListResponse(page: Page, workspaceId: string) {
+  return page.waitForResponse((response) => {
+    const url = new URL(response.url());
+    return (
+      response.request().method() === "GET" &&
+      url.pathname === "/api/issues" &&
+      response.request().headers()["x-demo-workspace-id"] === workspaceId
+    );
+  });
+}
+
 type TestIssue = {
   id: string;
   title: string;
   description: string;
-  severity: "low" | "medium" | "high" | "critical";
-  status: "open" | "in_progress" | "resolved";
+  severity: "low" | "medium" | "high" | "critical" | "blocker";
+  status: "open" | "in_progress" | "testing" | "resolved";
 };
 
-async function createIssueFixture(page: Page, workspaceId: string): Promise<TestIssue> {
+async function createIssueFixture(
+  page: Page,
+  workspaceId: string,
+  status: TestIssue["status"] = "open"
+): Promise<TestIssue> {
   const payload = {
     title: `Close guard ${workspaceId.slice(0, 8)}`,
     description: "Дефект для проверки защиты несохранённых изменений.",
     severity: "medium" as const,
-    status: "open" as const
+    status
   };
   const response = await page.request.post("/api/issues", {
     headers: { "X-Demo-Workspace-Id": workspaceId },
@@ -48,6 +65,44 @@ async function clickDialogBackdrop(page: Page) {
   await page.mouse.click(2, 2);
 }
 
+function getHeaderCreateButton(page: Page) {
+  return page
+    .getByRole("banner", { name: "Навигация QA Lab" })
+    .getByRole("button", { name: "Создать дефект" });
+}
+
+function getCardStatusControl(page: Page, title: string) {
+  return page
+    .getByRole("article", { name: title })
+    .getByRole("combobox", { name: `Статус дефекта «${title}»`, exact: true });
+}
+
+async function expectFormSelectsAligned(dialog: Locator) {
+  const severity = dialog.getByLabel("Критичность");
+  const status = dialog.getByLabel("Статус");
+
+  await expect
+    .poll(
+      async () => {
+        const [severityRect, statusRect] = await Promise.all(
+          [severity, status].map((control) =>
+            control.evaluate((element) => {
+              const { top, bottom } = element.getBoundingClientRect();
+              return { top, bottom };
+            })
+          )
+        );
+
+        return Math.max(
+          Math.abs(severityRect.top - statusRect.top),
+          Math.abs(severityRect.bottom - statusRect.bottom)
+        );
+      },
+      { message: "Селекты критичности и статуса должны находиться на одной линии" }
+    )
+    .toBeLessThanOrEqual(2);
+}
+
 test.describe("QA Lab", () => {
   test("переходит в QA Lab из портфолио", async ({ page }) => {
     await page.goto("/");
@@ -57,9 +112,374 @@ test.describe("QA Lab", () => {
     await expect(
       page.getByRole("heading", { name: "Трекер дефектов", level: 1 })
     ).toBeVisible();
+    await expect(getHeaderCreateButton(page)).toBeVisible();
     await expect(
       page.locator(".lab-hero").getByRole("button", { name: "Создать дефект" })
-    ).toBeVisible();
+    ).toHaveCount(0);
+  });
+
+  test("валидирует изменение Workspace и защищает несохранённый UUID", async ({
+    page,
+    workspaceId
+  }) => {
+    await page.goto("/api-lab.html");
+    await expect(page.getByRole("heading", { name: "Дефектов пока нет" })).toBeVisible();
+
+    const workspaceValue = page.locator("[data-workspace-id]");
+    const editWorkspace = page.getByRole("button", {
+      name: "Изменить Workspace ID"
+    });
+    const workspaceDialog = page.getByRole("dialog", {
+      name: "Изменить Workspace"
+    });
+    const workspaceInput = workspaceDialog.getByLabel("Workspace ID");
+    const submitWorkspace = workspaceDialog.getByRole("button", {
+      name: "Сохранить и перейти"
+    });
+    let listRequests = 0;
+    page.on("request", (request) => {
+      const url = new URL(request.url());
+      if (request.method() === "GET" && url.pathname === "/api/issues") {
+        listRequests += 1;
+      }
+    });
+
+    await expect(workspaceValue).toHaveText(workspaceId);
+    await editWorkspace.click();
+    await expect(workspaceDialog).toBeVisible();
+    await expect(workspaceInput).toHaveValue(workspaceId);
+    await expect(workspaceInput).toBeFocused();
+    await expect
+      .poll(() =>
+        workspaceInput.evaluate((input: HTMLInputElement) => ({
+          end: input.selectionEnd,
+          start: input.selectionStart
+        }))
+      )
+      .toEqual({ start: 0, end: workspaceId.length });
+
+    await page.keyboard.press("Escape");
+    await expect(workspaceDialog).toBeHidden();
+    await expect(page.getByRole("alertdialog")).toHaveCount(0);
+    await expect(editWorkspace).toBeFocused();
+
+    await editWorkspace.click();
+    await workspaceInput.fill("");
+    await submitWorkspace.click();
+    await expect(workspaceDialog.getByRole("alert")).toHaveText(
+      "Введите Workspace ID."
+    );
+    await expect(workspaceInput).toHaveAttribute("aria-invalid", "true");
+    await expect(workspaceInput).toBeFocused();
+
+    await workspaceInput.fill("not-a-uuid");
+    await expect(workspaceDialog.getByRole("alert")).toBeHidden();
+    await submitWorkspace.click();
+    await expect(workspaceDialog.getByRole("alert")).toHaveText(
+      "Введите UUID в формате 123e4567-e89b-12d3-a456-426614174000."
+    );
+
+    const otherWorkspaceId = randomUUID();
+    await workspaceInput.fill(otherWorkspaceId);
+    await page.keyboard.press("Escape");
+
+    const warning = page.getByRole("alertdialog", {
+      name: "Закрыть без сохранения?"
+    });
+    await expect(warning).toContainText("Новый Workspace ID не будет сохранён.");
+    await warning.getByRole("button", { name: "Продолжить работу" }).click();
+    await expect(workspaceDialog).toBeVisible();
+    await expect(workspaceInput).toHaveValue(otherWorkspaceId);
+    await expect(workspaceInput).toBeFocused();
+
+    await workspaceDialog.getByRole("button", { name: "Отмена" }).click();
+    await expect(warning).toBeVisible();
+    await warning.getByRole("button", { name: "Продолжить работу" }).click();
+    await expect(workspaceInput).toBeFocused();
+
+    await workspaceDialog.getByRole("button", { name: "Отмена" }).click();
+    await expect(warning).toBeVisible();
+    await warning.getByRole("button", { name: "Закрыть без сохранения" }).click();
+    await expect(workspaceDialog).toBeHidden();
+    await expect(workspaceValue).toHaveText(workspaceId);
+    await expect(editWorkspace).toBeFocused();
+    expect(
+      await page.evaluate(() => localStorage.getItem("qa-lab-workspace-id"))
+    ).toBe(workspaceId);
+    expect(listRequests).toBe(0);
+
+    await editWorkspace.click();
+    await workspaceInput.fill(`  ${workspaceId.toUpperCase()}  `);
+    await submitWorkspace.click();
+    await expect(workspaceDialog).toBeHidden();
+    await expect(page.locator("[data-announcer]")).toHaveText(
+      "Workspace не изменён."
+    );
+    await expect(workspaceValue).toHaveText(workspaceId);
+    await expect(editWorkspace).toBeFocused();
+    expect(
+      await page.evaluate(() => localStorage.getItem("qa-lab-workspace-id"))
+    ).toBe(workspaceId);
+    expect(listRequests).toBe(0);
+  });
+
+  test("нормализует сохранённый Workspace при загрузке", async ({ page }) => {
+    const workspaceId = randomUUID();
+    await page.addInitScript((id: string) => {
+      localStorage.setItem("qa-lab-workspace-id", id.toUpperCase());
+    }, workspaceId);
+
+    await page.goto("/api-lab.html");
+    await expect(page.locator("[data-workspace-id]")).toHaveText(workspaceId);
+    expect(
+      await page.evaluate(() => localStorage.getItem("qa-lab-workspace-id"))
+    ).toBe(workspaceId);
+
+    const editWorkspace = page.getByRole("button", {
+      name: "Изменить Workspace ID"
+    });
+    await editWorkspace.click();
+    await expect(page.getByRole("dialog", { name: "Изменить Workspace" })).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("dialog", { name: "Изменить Workspace" })).toBeHidden();
+    await expect(page.getByRole("alertdialog")).toHaveCount(0);
+    await expect(editWorkspace).toBeFocused();
+  });
+
+  test("переключает Workspace, изолирует данные и сохраняет выбор", async ({ page }) => {
+    await page.goto("/api-lab.html");
+    const workspaceValue = page.locator("[data-workspace-id]");
+    await expect(workspaceValue).not.toHaveText("создаётся…");
+    const workspaceAId = (await workspaceValue.innerText()).trim();
+    const workspaceBId = randomUUID();
+    expect(workspaceAId).toMatch(UUID_PATTERN);
+
+    const issueA = await createIssueFixture(page, workspaceAId);
+    const issueB = await createIssueFixture(page, workspaceBId);
+
+    const reloadA = waitForWorkspaceListResponse(page, workspaceAId);
+    await page.reload();
+    expect((await reloadA).status()).toBe(200);
+    await expect(page.getByRole("article", { name: issueA.title })).toBeVisible();
+    await expect(page.getByRole("article", { name: issueB.title })).toHaveCount(0);
+
+    const search = page
+      .getByRole("search", { name: "Поиск и фильтры дефектов" })
+      .getByLabel("Поиск");
+    const filtered = page.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return url.pathname === "/api/issues" && url.searchParams.get("q") === issueA.title;
+    });
+    await search.fill(issueA.title);
+    expect((await filtered).status()).toBe(200);
+
+    const editWorkspace = page.getByRole("button", {
+      name: "Изменить Workspace ID"
+    });
+    await editWorkspace.click();
+    const workspaceDialog = page.getByRole("dialog", {
+      name: "Изменить Workspace"
+    });
+    await workspaceDialog
+      .getByLabel("Workspace ID")
+      .fill(`  ${workspaceBId.toUpperCase()}  `);
+
+    const switchToB = waitForWorkspaceListResponse(page, workspaceBId);
+    await workspaceDialog
+      .getByRole("button", { name: "Сохранить и перейти" })
+      .click();
+    expect((await switchToB).status()).toBe(200);
+
+    await expect(workspaceDialog).toBeHidden();
+    await expect(workspaceValue).toHaveText(workspaceBId);
+    await expect(search).toHaveValue("");
+    await expect(page.getByRole("article", { name: issueB.title })).toBeVisible();
+    await expect(page.getByRole("article", { name: issueA.title })).toHaveCount(0);
+    await expect(page.locator("[data-operation-status]")).toHaveText(
+      "Workspace изменён. В списке: 1 дефект."
+    );
+    await expect(editWorkspace).toBeFocused();
+    expect(
+      await page.evaluate(() => localStorage.getItem("qa-lab-workspace-id"))
+    ).toBe(workspaceBId);
+
+    const reloadB = waitForWorkspaceListResponse(page, workspaceBId);
+    await page.reload();
+    expect((await reloadB).status()).toBe(200);
+    await expect(workspaceValue).toHaveText(workspaceBId);
+    await expect(page.getByRole("article", { name: issueB.title })).toBeVisible();
+    await expect(page.getByRole("article", { name: issueA.title })).toHaveCount(0);
+
+    await editWorkspace.click();
+    await workspaceDialog.getByLabel("Workspace ID").fill(workspaceAId);
+    const switchBackToA = waitForWorkspaceListResponse(page, workspaceAId);
+    await workspaceDialog
+      .getByRole("button", { name: "Сохранить и перейти" })
+      .click();
+    expect((await switchBackToA).status()).toBe(200);
+    await expect(page.getByRole("article", { name: issueA.title })).toBeVisible();
+    await expect(page.getByRole("article", { name: issueB.title })).toHaveCount(0);
+  });
+
+  test("повторяет загрузку после ошибки переключения Workspace", async ({ page }) => {
+    await page.goto("/api-lab.html");
+    const workspaceAId = (await page.locator("[data-workspace-id]").innerText()).trim();
+    const workspaceBId = randomUUID();
+    const issueA = await createIssueFixture(page, workspaceAId);
+    const issueB = await createIssueFixture(page, workspaceBId);
+
+    await page.reload();
+    await expect(page.getByRole("article", { name: issueA.title })).toBeVisible();
+
+    let failWorkspaceBList = true;
+    await page.route("**/api/issues*", async (route) => {
+      const request = route.request();
+      const url = new URL(request.url());
+      if (
+        failWorkspaceBList &&
+        request.method() === "GET" &&
+        url.pathname === "/api/issues" &&
+        request.headers()["x-demo-workspace-id"] === workspaceBId
+      ) {
+        failWorkspaceBList = false;
+        await route.fulfill({
+          status: 503,
+          contentType: "application/json",
+          body: JSON.stringify({
+            error: {
+              code: "SERVICE_UNAVAILABLE",
+              message: "Workspace list is temporarily unavailable",
+              fields: {},
+              requestId: randomUUID()
+            }
+          })
+        });
+        return;
+      }
+
+      await route.continue();
+    });
+
+    await page.getByRole("button", { name: "Изменить Workspace ID" }).click();
+    const workspaceDialog = page.getByRole("dialog", {
+      name: "Изменить Workspace"
+    });
+    await workspaceDialog.getByLabel("Workspace ID").fill(workspaceBId);
+    const failedList = waitForWorkspaceListResponse(page, workspaceBId);
+    await workspaceDialog
+      .getByRole("button", { name: "Сохранить и перейти" })
+      .click();
+    expect((await failedList).status()).toBe(503);
+
+    await expect(page.locator("[data-workspace-id]")).toHaveText(workspaceBId);
+    expect(
+      await page.evaluate(() => localStorage.getItem("qa-lab-workspace-id"))
+    ).toBe(workspaceBId);
+    await expect(page.locator("[data-load-error]")).toContainText(
+      "Workspace list is temporarily unavailable"
+    );
+    await expect(page.locator("[data-operation-status]")).toHaveText(
+      "Workspace изменён, но загрузить дефекты не удалось."
+    );
+    await expect(page.getByRole("article", { name: issueA.title })).toHaveCount(0);
+
+    const retriedList = waitForWorkspaceListResponse(page, workspaceBId);
+    await page.getByRole("button", { name: "Повторить" }).click();
+    expect((await retriedList).status()).toBe(200);
+    await expect(page.getByRole("article", { name: issueB.title })).toBeVisible();
+    await expect(page.getByRole("article", { name: issueA.title })).toHaveCount(0);
+    await expect(page.locator("[data-load-error]")).toBeHidden();
+    await expect(page.locator("[data-operation-status]")).toBeHidden();
+  });
+
+  test("игнорирует завершение inline PATCH предыдущего Workspace", async ({
+    page,
+    workspaceId
+  }) => {
+    const issueA = await createIssueFixture(page, workspaceId);
+    const workspaceBId = randomUUID();
+    const issueB = await createIssueFixture(page, workspaceBId);
+    let releasePatch!: () => void;
+    let markPatchStarted!: () => void;
+    const patchRelease = new Promise<void>((resolve) => {
+      releasePatch = resolve;
+    });
+    const patchStarted = new Promise<void>((resolve) => {
+      markPatchStarted = resolve;
+    });
+
+    await page.route(`**/api/issues/${issueA.id}`, async (route) => {
+      if (route.request().method() === "PATCH") {
+        markPatchStarted();
+        await patchRelease;
+      }
+      await route.continue();
+    });
+
+    await page.goto("/api-lab.html");
+    const patchResponsePromise = waitForApiResponse(
+      page,
+      "PATCH",
+      `/api/issues/${issueA.id}`
+    );
+    await getCardStatusControl(page, issueA.title).selectOption("in_progress");
+    await patchStarted;
+
+    await page.getByRole("button", { name: "Изменить Workspace ID" }).click();
+    const workspaceDialog = page.getByRole("dialog", {
+      name: "Изменить Workspace"
+    });
+    await workspaceDialog.getByLabel("Workspace ID").fill(workspaceBId);
+    const switchToB = waitForWorkspaceListResponse(page, workspaceBId);
+    await workspaceDialog
+      .getByRole("button", { name: "Сохранить и перейти" })
+      .click();
+    expect((await switchToB).status()).toBe(200);
+    await expect(page.getByRole("article", { name: issueB.title })).toBeVisible();
+
+    releasePatch();
+    const patchResponse = await patchResponsePromise;
+    expect(patchResponse.status()).toBe(200);
+    await patchResponse.finished();
+    await page.evaluate(
+      () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+    );
+
+    await expect(page.locator("[data-workspace-id]")).toHaveText(workspaceBId);
+    await expect(page.getByRole("article", { name: issueB.title })).toBeVisible();
+    await expect(page.getByRole("article", { name: issueA.title })).toHaveCount(0);
+    await expect(page.locator("[data-operation-status]")).toHaveText(
+      "Workspace изменён. В списке: 1 дефект."
+    );
+    await expect(page.locator("[data-request-method]")).toHaveText("GET");
+    await expect(page.locator("[data-request-url]")).toHaveText("/api/issues");
+  });
+
+  test("выравнивает критичность и статус в формах создания и редактирования", async ({
+    page,
+    workspaceId
+  }) => {
+    await page.setViewportSize({ width: 1024, height: 900 });
+    const issue = await createIssueFixture(page, workspaceId, "resolved");
+
+    await page.goto("/api-lab.html");
+    await getHeaderCreateButton(page).click();
+
+    const createDialog = page.getByRole("dialog", { name: "Создать дефект" });
+    await expect(createDialog.locator("[data-status-hint]")).not.toBeEmpty();
+    await expectFormSelectsAligned(createDialog);
+
+    await page.keyboard.press("Escape");
+    await expect(createDialog).toBeHidden();
+
+    await page
+      .getByRole("article", { name: issue.title })
+      .getByRole("button", { name: "Редактировать" })
+      .click();
+
+    const editDialog = page.getByRole("dialog", { name: "Редактировать дефект" });
+    await expect(editDialog.locator("[data-status-hint]")).not.toBeEmpty();
+    await expectFormSelectsAligned(editDialog);
   });
 
   test("выполняет полный CRUD через интерфейс", async ({ page, workspaceId }) => {
@@ -70,15 +490,25 @@ test.describe("QA Lab", () => {
     await page.goto("/api-lab.html");
     await expect(page.getByRole("heading", { name: "Дефектов пока нет" })).toBeVisible();
 
-    await page
-      .locator(".lab-hero")
-      .getByRole("button", { name: "Создать дефект" })
-      .click();
+    await getHeaderCreateButton(page).click();
 
     const createDialog = page.getByRole("dialog", { name: "Создать дефект" });
     await createDialog.getByLabel("Название").fill(title);
     await createDialog.getByLabel("Описание").fill(description);
-    await createDialog.getByLabel("Критичность").selectOption("high");
+    await createDialog.getByLabel("Критичность").selectOption("blocker");
+    const createStatus = createDialog.getByLabel("Статус");
+    await expect(
+      createDialog.getByText(
+        "При создании можно выбрать начальный статус. Дальнейшие изменения выполняются по статусной модели."
+      )
+    ).toBeVisible();
+    await expect(createStatus.locator("option")).toHaveText([
+      "Открыт",
+      "В работе",
+      "Тестирование",
+      "Решён"
+    ]);
+    await createStatus.selectOption("testing");
 
     const postPromise = waitForApiResponse(page, "POST", "/api/issues");
     await createDialog.getByRole("button", { name: "Создать", exact: true }).click();
@@ -88,12 +518,60 @@ test.describe("QA Lab", () => {
     expect(postResponse.headers().location).toMatch(/^\/api\/issues\/[0-9a-f-]+$/i);
     expect(postResponse.request().headers()["x-demo-workspace-id"]).toBe(workspaceId);
     const created = await postResponse.json();
+    expect(created.severity).toBe("blocker");
+    expect(created.status).toBe("testing");
 
     await expect(page.getByRole("heading", { name: title })).toBeVisible();
+    await expect(
+      page.getByRole("article", { name: title }).getByText("Блокер", { exact: true })
+    ).toBeVisible();
+    await expect(getCardStatusControl(page, title)).toHaveValue("testing");
+    await expect(page.locator("[data-empty-state]")).toBeHidden();
     await expect(page.locator("[data-operation-status]")).toHaveText("Дефект создан.");
     await expect(page.locator("[data-request-method]")).toHaveText("POST");
     await expect(page.locator("[data-response-status]")).toContainText("201");
     await expect(page.locator("[data-request-json]")).toContainText(title);
+
+    const persistentCreateButton = getHeaderCreateButton(page);
+    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
+    await expect(persistentCreateButton).toBeVisible();
+    await expect(persistentCreateButton).toBeInViewport();
+    await persistentCreateButton.click();
+    await expect(createDialog).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(createDialog).toBeHidden();
+    await expect(persistentCreateButton).toBeFocused();
+
+    const testingFilterPromise = page.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return (
+        response.request().method() === "GET" &&
+        url.pathname === "/api/issues" &&
+        url.searchParams.get("status") === "testing"
+      );
+    });
+    await page
+      .getByRole("search", { name: "Поиск и фильтры дефектов" })
+      .getByLabel("Статус")
+      .selectOption("testing");
+    expect((await testingFilterPromise).status()).toBe(200);
+    await expect(page.getByRole("article", { name: title })).toBeVisible();
+
+    const blockerFilterPromise = page.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return (
+        response.request().method() === "GET" &&
+        url.pathname === "/api/issues" &&
+        url.searchParams.get("severity") === "blocker"
+      );
+    });
+    await page
+      .getByRole("search", { name: "Поиск и фильтры дефектов" })
+      .getByLabel("Критичность")
+      .selectOption("blocker");
+    expect((await blockerFilterPromise).status()).toBe(200);
+    await expect(page.getByRole("article", { name: title })).toBeVisible();
 
     const reloadListPromise = waitForApiResponse(page, "GET", "/api/issues");
     await page.reload();
@@ -107,15 +585,27 @@ test.describe("QA Lab", () => {
 
     const detailsDialog = page.getByRole("dialog", { name: title });
     await expect(detailsDialog.getByText(description)).toBeVisible();
+    await expect(detailsDialog.getByText("Блокер", { exact: true })).toBeVisible();
+    await expect(detailsDialog.getByText("Тестирование", { exact: true })).toBeVisible();
     await detailsDialog.getByRole("button", { name: "Редактировать" }).click();
 
     const editDialog = page.getByRole("dialog", { name: "Редактировать дефект" });
+    await expect(editDialog.getByLabel("Статус").locator("option")).toHaveText([
+      "Тестирование",
+      "В работе",
+      "Решён"
+    ]);
+    await expect(
+      editDialog.getByText("Доступные переходы — «В работе» или «Решён».")
+    ).toBeVisible();
     await editDialog.getByLabel("Название").fill(updatedTitle);
-    await editDialog.getByLabel("Статус").selectOption("in_progress");
+    await editDialog.getByLabel("Статус").selectOption("resolved");
 
     const patchPromise = waitForApiResponse(page, "PATCH", `/api/issues/${created.id}`);
     await editDialog.getByRole("button", { name: "Сохранить" }).click();
-    expect((await patchPromise).status()).toBe(200);
+    const patchResponse = await patchPromise;
+    expect(patchResponse.status()).toBe(200);
+    expect((await patchResponse.json()).status).toBe("resolved");
     await expect(page.getByRole("heading", { name: updatedTitle })).toBeVisible();
     await expect(page.locator("[data-operation-status]")).toHaveText("Дефект обновлён.");
     await expect(page.locator("[data-request-method]")).toHaveText("PATCH");
@@ -126,7 +616,24 @@ test.describe("QA Lab", () => {
     expect((await persistedListPromise).status()).toBe(200);
 
     const updatedCard = page.getByRole("article", { name: updatedTitle });
-    await expect(updatedCard.getByText("В работе")).toBeVisible();
+    await expect(getCardStatusControl(page, updatedTitle)).toHaveValue("resolved");
+    await expect(getCardStatusControl(page, updatedTitle).locator("option")).toHaveText([
+      "Решён",
+      "Открыт"
+    ]);
+    await expect(getCardStatusControl(page, updatedTitle)).toBeEnabled();
+    await updatedCard.getByRole("button", { name: "Редактировать" }).click();
+    await expect(editDialog.getByLabel("Статус")).toHaveValue("resolved");
+    await expect(editDialog.getByLabel("Статус").locator("option")).toHaveText([
+      "Решён",
+      "Открыт"
+    ]);
+    await expect(editDialog.getByLabel("Статус")).toBeEnabled();
+    await expect(
+      editDialog.getByText("Доступный переход — «Открыт».")
+    ).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(editDialog).toBeHidden();
     await updatedCard.getByRole("button", { name: "Удалить" }).click();
 
     const deleteDialog = page.getByRole("dialog", { name: "Удалить дефект?" });
@@ -145,6 +652,313 @@ test.describe("QA Lab", () => {
     await page.reload();
     expect((await finalListPromise).status()).toBe(200);
     await expect(page.getByRole("heading", { name: updatedTitle })).toHaveCount(0);
+  });
+
+  test("меняет статус непосредственно из карточки по статусной модели", async ({
+    page,
+    workspaceId
+  }) => {
+    const issue = await createIssueFixture(page, workspaceId);
+    await page.goto("/api-lab.html");
+
+    const transitions = [
+      { from: "open", to: "in_progress", labels: ["Открыт", "В работе"] },
+      {
+        from: "in_progress",
+        to: "testing",
+        labels: ["В работе", "Тестирование"]
+      },
+      {
+        from: "testing",
+        to: "resolved",
+        labels: ["Тестирование", "В работе", "Решён"]
+      },
+      { from: "resolved", to: "open", labels: ["Решён", "Открыт"] },
+      { from: "open", to: "in_progress", labels: ["Открыт", "В работе"] },
+      {
+        from: "in_progress",
+        to: "testing",
+        labels: ["В работе", "Тестирование"]
+      },
+      {
+        from: "testing",
+        to: "in_progress",
+        labels: ["Тестирование", "В работе", "Решён"]
+      }
+    ] as const;
+
+    for (const transition of transitions) {
+      const statusControl = getCardStatusControl(page, issue.title);
+      await expect(statusControl).toHaveValue(transition.from);
+      await expect(statusControl.locator("option")).toHaveText(transition.labels);
+
+      const patchPromise = waitForApiResponse(page, "PATCH", `/api/issues/${issue.id}`);
+      await statusControl.selectOption(transition.to);
+      const patchResponse = await patchPromise;
+
+      expect(patchResponse.status()).toBe(200);
+      expect(patchResponse.request().headers()["x-demo-workspace-id"]).toBe(workspaceId);
+      expect(patchResponse.request().postDataJSON()).toEqual({ status: transition.to });
+      expect((await patchResponse.json()).status).toBe(transition.to);
+      await expect(getCardStatusControl(page, issue.title)).toHaveValue(transition.to);
+      await expect(getCardStatusControl(page, issue.title)).toBeFocused();
+    }
+
+    const finalControl = getCardStatusControl(page, issue.title);
+    await expect(finalControl.locator("option")).toHaveText([
+      "В работе",
+      "Тестирование"
+    ]);
+    await expect(finalControl).toBeEnabled();
+    await expect(page.locator("[data-operation-status]")).toHaveText(
+      `Статус дефекта «${issue.title}» изменён на «В работе».`
+    );
+    await expect(page.locator("[data-request-method]")).toHaveText("PATCH");
+    await expect(page.locator("[data-response-status]")).toContainText("200");
+    await expect(page.locator("[data-request-json]")).toContainText(
+      '"status": "in_progress"'
+    );
+
+    const reloadPromise = waitForApiResponse(page, "GET", "/api/issues");
+    await page.reload();
+    expect((await reloadPromise).status()).toBe(200);
+    await expect(getCardStatusControl(page, issue.title)).toHaveValue("in_progress");
+    await expect(getCardStatusControl(page, issue.title)).toBeEnabled();
+  });
+
+  test("API атомарно отклоняет переход с пропуском статуса", async ({
+    page,
+    workspaceId
+  }) => {
+    const issue = await createIssueFixture(page, workspaceId);
+    const changedTitle = `${issue.title} changed`;
+    const response = await page.request.patch(`/api/issues/${issue.id}`, {
+      headers: { "X-Demo-Workspace-Id": workspaceId },
+      data: { title: changedTitle, status: "resolved" }
+    });
+
+    expect(response.status()).toBe(409);
+    const payload = await response.json();
+    expect(payload.error.code).toBe("INVALID_STATUS_TRANSITION");
+    expect(payload.error.fields.status).toContain('"open"');
+    expect(payload.error.fields.status).toContain('"in_progress"');
+
+    const persistedResponse = await page.request.get(`/api/issues/${issue.id}`, {
+      headers: { "X-Demo-Workspace-Id": workspaceId }
+    });
+    expect(persistedResponse.status()).toBe(200);
+    const persisted = await persistedResponse.json();
+    expect(persisted.title).toBe(issue.title);
+    expect(persisted.status).toBe("open");
+    expect(persisted.updatedAt).toBe(issue.updatedAt);
+  });
+
+  test("обновляет карточку при конфликте статуса с другой операцией", async ({
+    page,
+    workspaceId
+  }) => {
+    const issue = await createIssueFixture(page, workspaceId);
+    await page.goto("/api-lab.html");
+    await expect(getCardStatusControl(page, issue.title)).toHaveValue("open");
+
+    for (const status of ["in_progress", "testing", "resolved"] as const) {
+      const response = await page.request.patch(`/api/issues/${issue.id}`, {
+        headers: { "X-Demo-Workspace-Id": workspaceId },
+        data: { status }
+      });
+      expect(response.status()).toBe(200);
+    }
+
+    const conflictPromise = waitForApiResponse(page, "PATCH", `/api/issues/${issue.id}`);
+    await getCardStatusControl(page, issue.title).selectOption("in_progress");
+    expect((await conflictPromise).status()).toBe(409);
+
+    const refreshedControl = getCardStatusControl(page, issue.title);
+    await expect(refreshedControl).toHaveValue("resolved");
+    await expect(refreshedControl.locator("option")).toHaveText([
+      "Решён",
+      "Открыт"
+    ]);
+    await expect(refreshedControl).toBeFocused();
+    await expect(page.locator("[data-operation-status]")).toHaveText(
+      "Статус дефекта уже изменился. Список обновлён."
+    );
+    await expect(page.locator("[data-response-status]")).toContainText("409");
+  });
+
+  test("синхронизирует карточку после конфликта в форме редактирования", async ({
+    page,
+    workspaceId
+  }) => {
+    const issue = await createIssueFixture(page, workspaceId);
+    await page.goto("/api-lab.html");
+
+    const card = page.getByRole("article", { name: issue.title });
+    await card.getByRole("button", { name: "Редактировать" }).click();
+
+    const editDialog = page.getByRole("dialog", { name: "Редактировать дефект" });
+    const draftTitle = `${issue.title} draft`;
+    await editDialog.getByLabel("Название").fill(draftTitle);
+    await editDialog.getByLabel("Статус").selectOption("in_progress");
+
+    for (const status of ["in_progress", "testing", "resolved"] as const) {
+      const response = await page.request.patch(`/api/issues/${issue.id}`, {
+        headers: { "X-Demo-Workspace-Id": workspaceId },
+        data: { status }
+      });
+      expect(response.status()).toBe(200);
+    }
+
+    const conflictPromise = waitForApiResponse(page, "PATCH", `/api/issues/${issue.id}`);
+    await editDialog.getByRole("button", { name: "Сохранить" }).click();
+    expect((await conflictPromise).status()).toBe(409);
+
+    await expect(editDialog).toBeVisible();
+    await expect(editDialog.getByLabel("Название")).toHaveValue(draftTitle);
+    await expect(editDialog.getByLabel("Статус")).toHaveValue("resolved");
+    await expect(editDialog.getByLabel("Статус").locator("option")).toHaveText([
+      "Решён",
+      "Открыт"
+    ]);
+    await expect(editDialog.locator('[data-field-error="status"]')).toContainText(
+      "Статус уже изменился. Доступный переход — «Открыт». Остальные данные формы сохранены."
+    );
+    await expect(getCardStatusControl(page, issue.title)).toHaveValue("resolved");
+    await expect(getCardStatusControl(page, issue.title).locator("option")).toHaveText([
+      "Решён",
+      "Открыт"
+    ]);
+    await expect(page.locator("[data-response-status]")).toContainText("409");
+
+    await page.keyboard.press("Escape");
+    const warning = page.getByRole("alertdialog", { name: "Закрыть без сохранения?" });
+    await expect(warning).toBeVisible();
+    await warning.getByRole("button", { name: "Закрыть без сохранения" }).click();
+    await expect(editDialog).toBeHidden();
+    await expect(
+      page
+        .getByRole("article", { name: issue.title })
+        .getByRole("button", { name: "Редактировать" })
+    ).toBeFocused();
+  });
+
+  test("сохраняет фильтр при смене статуса из карточки", async ({
+    page,
+    workspaceId
+  }) => {
+    const issue = await createIssueFixture(page, workspaceId);
+    let releasePatch!: () => void;
+    let markPatchStarted!: () => void;
+    const patchRelease = new Promise<void>((resolve) => {
+      releasePatch = resolve;
+    });
+    const patchStarted = new Promise<void>((resolve) => {
+      markPatchStarted = resolve;
+    });
+
+    await page.route(`**/api/issues/${issue.id}`, async (route) => {
+      if (route.request().method() === "PATCH") {
+        markPatchStarted();
+        await patchRelease;
+      }
+      await route.continue();
+    });
+
+    await page.goto("/api-lab.html");
+
+    const statusFilter = page
+      .getByRole("search", { name: "Поиск и фильтры дефектов" })
+      .getByLabel("Статус");
+    const patchPromise = waitForApiResponse(page, "PATCH", `/api/issues/${issue.id}`);
+    await getCardStatusControl(page, issue.title).selectOption("in_progress");
+    await patchStarted;
+
+    const openFilterPromise = page.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return url.pathname === "/api/issues" && url.searchParams.get("status") === "open";
+    });
+    await statusFilter.selectOption("open");
+    expect((await openFilterPromise).status()).toBe(200);
+    await expect(page.getByRole("article", { name: issue.title })).toBeVisible();
+
+    const refreshPromise = page.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return url.pathname === "/api/issues" && url.searchParams.get("status") === "open";
+    });
+    releasePatch();
+    expect((await patchPromise).status()).toBe(200);
+    expect((await refreshPromise).status()).toBe(200);
+
+    await expect(page.getByRole("article", { name: issue.title })).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: "Ничего не найдено" })).toBeVisible();
+    await expect(page.locator("[data-operation-status]")).toContainText(
+      "Карточка скрыта текущим фильтром."
+    );
+
+    const inProgressFilterPromise = page.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return (
+        url.pathname === "/api/issues" &&
+        url.searchParams.get("status") === "in_progress"
+      );
+    });
+    await statusFilter.selectOption("in_progress");
+    expect((await inProgressFilterPromise).status()).toBe(200);
+    await expect(getCardStatusControl(page, issue.title)).toHaveValue("in_progress");
+  });
+
+  test("откатывает статус при ошибке inline PATCH и позволяет повторить", async ({
+    page,
+    workspaceId
+  }) => {
+    const issue = await createIssueFixture(page, workspaceId);
+    let failPatch = true;
+
+    await page.route(`**/api/issues/${issue.id}`, async (route) => {
+      if (failPatch && route.request().method() === "PATCH") {
+        failPatch = false;
+        await route.fulfill({
+          status: 503,
+          contentType: "application/json",
+          body: JSON.stringify({
+            error: {
+              code: "SERVICE_UNAVAILABLE",
+              message: "Diagnostic failure",
+              fields: {},
+              requestId: randomUUID()
+            }
+          })
+        });
+        return;
+      }
+      await route.continue();
+    });
+
+    await page.goto("/api-lab.html");
+    const statusControl = getCardStatusControl(page, issue.title);
+    const failedPatchPromise = waitForApiResponse(
+      page,
+      "PATCH",
+      `/api/issues/${issue.id}`
+    );
+    await statusControl.selectOption("in_progress");
+    const failedPatchResponse = await failedPatchPromise;
+
+    expect(failedPatchResponse.status()).toBe(503);
+    expect(failedPatchResponse.request().postDataJSON()).toEqual({ status: "in_progress" });
+    await expect(statusControl).toHaveValue("open");
+    await expect(statusControl).toBeEnabled();
+    await expect(statusControl).toBeFocused();
+    await expect(
+      page.getByRole("article", { name: issue.title }).getByRole("alert")
+    ).toContainText("Сохранён прежний статус «Открыт». Diagnostic failure");
+    await expect(page.locator("[data-request-method]")).toHaveText("PATCH");
+    await expect(page.locator("[data-response-status]")).toContainText("503");
+
+    const retryPromise = waitForApiResponse(page, "PATCH", `/api/issues/${issue.id}`);
+    await statusControl.selectOption("in_progress");
+    expect((await retryPromise).status()).toBe(200);
+    await expect(getCardStatusControl(page, issue.title)).toHaveValue("in_progress");
   });
 
   test("закрывает карточку просмотра по Escape и клику вне неё", async ({
@@ -173,9 +987,7 @@ test.describe("QA Lab", () => {
   }) => {
     await page.goto("/api-lab.html");
 
-    const createButton = page
-      .locator(".lab-hero")
-      .getByRole("button", { name: "Создать дефект" });
+    const createButton = getHeaderCreateButton(page);
     const createDialog = page.getByRole("dialog", { name: "Создать дефект" });
 
     await createButton.click();
@@ -199,9 +1011,7 @@ test.describe("QA Lab", () => {
   test("считает изменением каждое поле формы создания", async ({ page }) => {
     await page.goto("/api-lab.html");
 
-    const createButton = page
-      .locator(".lab-hero")
-      .getByRole("button", { name: "Создать дефект" });
+    const createButton = getHeaderCreateButton(page);
     const createDialog = page.getByRole("dialog", { name: "Создать дефект" });
     const warningDialog = page.getByRole("alertdialog", {
       name: "Закрыть без сохранения?"
@@ -235,10 +1045,7 @@ test.describe("QA Lab", () => {
     page
   }) => {
     await page.goto("/api-lab.html");
-    await page
-      .locator(".lab-hero")
-      .getByRole("button", { name: "Создать дефект" })
-      .click();
+    await getHeaderCreateButton(page).click();
 
     const createDialog = page.getByRole("dialog", { name: "Создать дефект" });
     const titleInput = createDialog.getByLabel("Название");
@@ -302,7 +1109,12 @@ test.describe("QA Lab", () => {
     await editDialog.getByLabel("Описание").fill(issue.description);
     await editDialog.getByLabel("Критичность").selectOption("critical");
     await editDialog.getByLabel("Критичность").selectOption(issue.severity);
-    await editDialog.getByLabel("Статус").selectOption("resolved");
+    await expect(editDialog.getByLabel("Статус").locator("option")).toHaveText([
+      "Открыт",
+      "В работе"
+    ]);
+    await expect(editDialog.getByText("Доступный переход — «В работе».")).toBeVisible();
+    await editDialog.getByLabel("Статус").selectOption("in_progress");
     await editDialog.getByLabel("Статус").selectOption(issue.status);
     await clickDialogBackdrop(page);
 
@@ -346,7 +1158,7 @@ test.describe("QA Lab", () => {
 
     await expect(warningDialog).toBeHidden();
     await expect(editDialog).toBeHidden();
-    await expect(issueCard.getByText("Открыт", { exact: true })).toBeVisible();
+    await expect(getCardStatusControl(page, issue.title)).toHaveValue("open");
   });
 
   test("показывает ошибку загрузки и успешно повторяет запрос", async ({ page }) => {
@@ -380,6 +1192,73 @@ test.describe("QA Lab", () => {
 
     await expect(page.getByRole("heading", { name: "Дефектов пока нет" })).toBeVisible();
     await expect(page.locator("[data-load-error]")).toBeHidden();
+  });
+
+  test("применяет светлую палитру к последнему API-запросу", async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.goto("/api-lab.html");
+
+    const inspector = page.getByRole("complementary", {
+      name: "Последний API-запрос"
+    });
+    const issuesPanel = page.locator(".issues-panel");
+    const themeToggle = page.getByRole("button", { name: "Переключить тему" });
+
+    await expect(inspector.locator("[data-api-details]")).toBeVisible();
+    await inspector.locator("[data-response-body-section] summary").click();
+
+    const readInspectorPalette = () =>
+      inspector.evaluate((element) => {
+        const readStyle = (selector: string) => {
+          const target = element.querySelector(selector);
+          if (!(target instanceof HTMLElement)) throw new Error(`Не найден ${selector}`);
+          const style = getComputedStyle(target);
+          return {
+            backgroundColor: style.backgroundColor,
+            borderColor: style.borderColor,
+            color: style.color
+          };
+        };
+
+        const style = getComputedStyle(element);
+        return {
+          backgroundColor: style.backgroundColor,
+          borderColor: style.borderColor,
+          color: style.color,
+          eyebrow: readStyle(".eyebrow"),
+          json: readStyle("[data-response-body-section] .api-json"),
+          metaLabel: readStyle(".request-meta dt"),
+          summary: readStyle("[data-response-body-section] summary")
+        };
+      });
+
+    const darkPalette = await readInspectorPalette();
+
+    await themeToggle.click();
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
+
+    const lightPalette = await readInspectorPalette();
+    const referencePalette = await issuesPanel.evaluate((element) => {
+      const style = getComputedStyle(element);
+      return {
+        backgroundColor: style.backgroundColor,
+        borderColor: style.borderColor,
+        color: style.color
+      };
+    });
+
+    expect(lightPalette.backgroundColor).not.toBe(darkPalette.backgroundColor);
+    expect(lightPalette.color).not.toBe(darkPalette.color);
+    expect(lightPalette.json.backgroundColor).not.toBe(
+      darkPalette.json.backgroundColor
+    );
+    expect(lightPalette.json.color).not.toBe(darkPalette.json.color);
+    expect(lightPalette.eyebrow.color).not.toBe(darkPalette.eyebrow.color);
+    expect(lightPalette.metaLabel.color).not.toBe(darkPalette.metaLabel.color);
+    expect(lightPalette.summary.color).not.toBe(darkPalette.summary.color);
+    expect(lightPalette.backgroundColor).toBe(referencePalette.backgroundColor);
+    expect(lightPalette.borderColor).toBe(referencePalette.borderColor);
+    expect(lightPalette.color).toBe(referencePalette.color);
   });
 
   test("сохраняет тему при прямом открытии QA Lab", async ({ page }) => {
