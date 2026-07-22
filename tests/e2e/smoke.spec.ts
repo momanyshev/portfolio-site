@@ -31,10 +31,19 @@ test.describe("Smoke проверки портфолио", () => {
   });
 
   test("сохраняет выбранную тему", async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: "reduce" });
     const themeToggle = page.getByRole("button", { name: "Переключить тему" });
+    const apiTestsCard = page.locator(".code-feature");
+    const regularProjectCard = page.locator(".achievement-card:not(.code-feature)").first();
+    const readCardPalette = (locator: typeof apiTestsCard) =>
+      locator.evaluate((element) => {
+        const style = getComputedStyle(element);
+        return { backgroundColor: style.backgroundColor, color: style.color };
+      });
 
     await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
     await expect(themeToggle).toHaveAttribute("aria-pressed", "false");
+    const darkApiTestsPalette = await readCardPalette(apiTestsCard);
 
     await themeToggle.click();
 
@@ -43,6 +52,16 @@ test.describe("Smoke проверки портфолио", () => {
     await expect
       .poll(() => page.evaluate(() => localStorage.getItem("portfolio-theme")))
       .toBe("light");
+    const lightApiTestsPalette = await readCardPalette(apiTestsCard);
+    const lightRegularCardPalette = await readCardPalette(regularProjectCard);
+    expect(lightApiTestsPalette.backgroundColor).not.toBe(
+      darkApiTestsPalette.backgroundColor
+    );
+    expect(lightApiTestsPalette.color).not.toBe(darkApiTestsPalette.color);
+    expect(lightApiTestsPalette.backgroundColor).toBe(
+      lightRegularCardPalette.backgroundColor
+    );
+    expect(lightApiTestsPalette.color).toBe(lightRegularCardPalette.color);
 
     await page.reload();
 

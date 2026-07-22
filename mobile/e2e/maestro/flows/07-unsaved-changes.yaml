@@ -1,0 +1,34 @@
+appId: ru.maksim.qalab
+name: 07 — Защита несохранённых изменений
+tags:
+  - smoke
+  - forms
+---
+- launchApp:
+    clearState: true
+    clearKeychain: true
+- extendedWaitUntil:
+    visible: "Дефектов пока нет"
+    timeout: 20000
+- tapOn:
+    id: create-issue-button
+- tapOn:
+    id: issue-title-input
+- inputText: "Maestro unsaved defect"
+- tapOn:
+    id: issue-description-input
+- inputText: "Unsaved issue description for alert"
+- hideKeyboard
+- tapOn: "Закрыть"
+- assertVisible: "Закрыть без сохранения?"
+- assertVisible: "Продолжить работу"
+- tapOn: "Продолжить работу"
+- assertVisible:
+    id: issue-form-modal
+- assertVisible: "Maestro unsaved defect"
+- tapOn: "Закрыть"
+- assertVisible: "Закрыть без сохранения?"
+- tapOn: "Закрыть без сохранения"
+- assertNotVisible:
+    id: issue-form-modal
+- assertVisible: "Дефектов пока нет"

@@ -74,19 +74,42 @@ test.describe("Адаптивная верстка", () => {
           .getByRole("banner", { name: "Навигация QA Lab" })
           .getByRole("button", { name: "Создать дефект" })
       ).toBeVisible();
+      const inspector = page.getByRole("complementary", {
+        name: "Последний API-запрос"
+      });
+      await expect(inspector.locator("[data-api-details]")).toBeVisible();
+      await inspector.locator("[data-curl-section] summary").click();
+      await expect(inspector.locator("[data-curl-command]")).toContainText(
+        "X-Demo-Workspace-Id"
+      );
       await expectNoHorizontalScroll(page);
 
       if (viewport.width === mobileViewport.width) {
         await expect(page.locator(".site-nav")).toBeHidden();
         await expect(page.getByRole("link", { name: "Вернуться к портфолио" })).toBeVisible();
 
+        const curlSummaryBox = await inspector
+          .locator("[data-curl-section] summary")
+          .boundingBox();
+        const copyCurlBox = await inspector
+          .getByRole("button", { name: "Копировать cURL" })
+          .boundingBox();
+        expect(curlSummaryBox).not.toBeNull();
+        expect(copyCurlBox).not.toBeNull();
+        expect(curlSummaryBox!.height).toBeGreaterThanOrEqual(44);
+        expect(copyCurlBox!.height).toBeGreaterThanOrEqual(36);
+        expect(copyCurlBox!.height).toBeLessThanOrEqual(40);
+        expect(copyCurlBox!.width).toBeLessThanOrEqual(40);
+
         const editWorkspace = page.getByRole("button", {
           name: "Изменить Workspace ID"
         });
         const editWorkspaceBox = await editWorkspace.boundingBox();
         expect(editWorkspaceBox).not.toBeNull();
-        expect(editWorkspaceBox!.width).toBeGreaterThanOrEqual(44);
-        expect(editWorkspaceBox!.height).toBeGreaterThanOrEqual(44);
+        expect(editWorkspaceBox!.width).toBeGreaterThanOrEqual(36);
+        expect(editWorkspaceBox!.height).toBeGreaterThanOrEqual(36);
+        expect(editWorkspaceBox!.width).toBeLessThanOrEqual(40);
+        expect(editWorkspaceBox!.height).toBeLessThanOrEqual(40);
 
         await editWorkspace.click();
         const workspaceDialog = page.getByRole("dialog", {

@@ -1,0 +1,21 @@
+appId: ru.maksim.qalab
+name: 12 — Светлая и тёмная темы
+tags:
+  - smoke
+  - theme
+---
+- launchApp:
+    clearState: true
+    clearKeychain: true
+- extendedWaitUntil:
+    visible: "Включить светлую тему"
+    timeout: 20000
+- tapOn: "Включить светлую тему"
+- assertVisible: "Включить тёмную тему"
+- stopApp
+- launchApp
+- extendedWaitUntil:
+    visible: "Включить тёмную тему"
+    timeout: 20000
+- tapOn: "Включить тёмную тему"
+- assertVisible: "Включить светлую тему"

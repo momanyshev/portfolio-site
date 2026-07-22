@@ -33,6 +33,27 @@ function waitForWorkspaceListResponse(page: Page, workspaceId: string) {
   });
 }
 
+function waitForFilteredListResponse(
+  page: Page,
+  {
+    q = "",
+    severity = [],
+    status = []
+  }: { q?: string; severity?: string[]; status?: string[] }
+) {
+  return page.waitForResponse((response) => {
+    const url = new URL(response.url());
+    return (
+      response.request().method() === "GET" &&
+      url.pathname === "/api/issues" &&
+      (url.searchParams.get("q") || "") === q &&
+      JSON.stringify(url.searchParams.getAll("status")) === JSON.stringify(status) &&
+      JSON.stringify(url.searchParams.getAll("severity")) ===
+        JSON.stringify(severity)
+    );
+  });
+}
+
 type TestIssue = {
   id: string;
   title: string;
@@ -40,6 +61,13 @@ type TestIssue = {
   severity: "low" | "medium" | "high" | "critical" | "blocker";
   status: "open" | "in_progress" | "testing" | "resolved";
 };
+
+type FilterName = "status" | "severity";
+
+type TestIssuePayload = Pick<
+  TestIssue,
+  "title" | "description" | "severity" | "status"
+>;
 
 async function createIssueFixture(
   page: Page,
@@ -61,6 +89,54 @@ async function createIssueFixture(
   return (await response.json()) as TestIssue;
 }
 
+async function createFilterIssueFixture(
+  page: Page,
+  workspaceId: string,
+  payload: TestIssuePayload
+): Promise<TestIssue> {
+  const response = await page.request.post("/api/issues", {
+    headers: { "X-Demo-Workspace-Id": workspaceId },
+    data: payload
+  });
+
+  expect(response.status()).toBe(201);
+  return (await response.json()) as TestIssue;
+}
+
+function getFilterMultiselect(page: Page, name: FilterName) {
+  return page.locator(`[data-filter-multiselect="${name}"]`);
+}
+
+function getFilterTrigger(page: Page, name: FilterName) {
+  return getFilterMultiselect(page, name).locator("[data-filter-trigger]");
+}
+
+function getFilterCheckbox(page: Page, name: FilterName, label: string) {
+  return getFilterMultiselect(page, name).getByRole("checkbox", {
+    name: label,
+    exact: true,
+    includeHidden: true
+  });
+}
+
+async function openFilterMultiselect(page: Page, name: FilterName) {
+  const trigger = getFilterTrigger(page, name);
+  if ((await trigger.getAttribute("aria-expanded")) !== "true") {
+    await trigger.click();
+  }
+  await expect(trigger).toHaveAttribute("aria-expanded", "true");
+  return getFilterMultiselect(page, name);
+}
+
+async function clickFilterCheckbox(
+  page: Page,
+  name: FilterName,
+  label: string
+) {
+  await openFilterMultiselect(page, name);
+  await getFilterCheckbox(page, name, label).click();
+}
+
 async function clickDialogBackdrop(page: Page) {
   await page.mouse.click(2, 2);
 }
@@ -75,6 +151,74 @@ function getCardStatusControl(page: Page, title: string) {
   return page
     .getByRole("article", { name: title })
     .getByRole("combobox", { name: `Статус дефекта «${title}»`, exact: true });
+}
+
+type ClipboardTestState = {
+  attempts: string[];
+  writes: string[];
+  fallbackWrites: string[];
+  fallbackSucceeds: boolean;
+};
+
+async function installClipboardMock(
+  page: Page,
+  { rejectNative = false, fallbackSucceeds = true } = {}
+) {
+  await page.addInitScript(
+    ({ rejectNative, fallbackSucceeds }) => {
+      const state: ClipboardTestState = {
+        attempts: [],
+        writes: [],
+        fallbackWrites: [],
+        fallbackSucceeds
+      };
+
+      Object.defineProperty(window, "__clipboardTest", {
+        configurable: true,
+        value: state
+      });
+      Object.defineProperty(navigator, "clipboard", {
+        configurable: true,
+        value: {
+          writeText(text: string) {
+            state.attempts.push(text);
+            if (rejectNative) {
+              return Promise.reject(new DOMException("Denied", "NotAllowedError"));
+            }
+            state.writes.push(text);
+            return Promise.resolve();
+          }
+        }
+      });
+      Object.defineProperty(document, "execCommand", {
+        configurable: true,
+        value(command: string) {
+          if (command !== "copy" || !state.fallbackSucceeds) return false;
+          const activeElement = document.activeElement;
+          state.fallbackWrites.push(
+            activeElement instanceof HTMLTextAreaElement ? activeElement.value : ""
+          );
+          return true;
+        }
+      });
+    },
+    { rejectNative, fallbackSucceeds }
+  );
+}
+
+function readClipboardState(page: Page) {
+  return page.evaluate(
+    () =>
+      (
+        window as typeof window & {
+          __clipboardTest: ClipboardTestState;
+        }
+      ).__clipboardTest
+  );
+}
+
+function quoteShellArgument(value: string) {
+  return "'" + value.replaceAll("'", "'\"'\"'") + "'";
 }
 
 async function expectFormSelectsAligned(dialog: Locator) {
@@ -122,10 +266,14 @@ test.describe("QA Lab", () => {
     page,
     workspaceId
   }) => {
+    await installClipboardMock(page);
     await page.goto("/api-lab.html");
     await expect(page.getByRole("heading", { name: "Дефектов пока нет" })).toBeVisible();
 
     const workspaceValue = page.locator("[data-workspace-id]");
+    const copyWorkspace = page.getByRole("button", {
+      name: "Копировать Workspace ID"
+    });
     const editWorkspace = page.getByRole("button", {
       name: "Изменить Workspace ID"
     });
@@ -145,6 +293,33 @@ test.describe("QA Lab", () => {
     });
 
     await expect(workspaceValue).toHaveText(workspaceId);
+    await expect(workspaceValue).toHaveCSS("font-style", "italic");
+    await expect(copyWorkspace).toHaveAttribute("data-tooltip", "Копировать");
+    await copyWorkspace.focus();
+    await page.keyboard.press("Enter");
+    await expect(copyWorkspace).toHaveAttribute("data-tooltip", "Скопировано");
+    await expect(copyWorkspace).toBeFocused();
+    expect((await readClipboardState(page)).writes).toEqual([workspaceId]);
+    await expect(page.locator("[data-announcer]")).toHaveText(
+      "Workspace ID скопирован."
+    );
+
+    const editButtonSizes = await editWorkspace.evaluate((button) => {
+      const icon = button.querySelector("svg");
+      const buttonRect = button.getBoundingClientRect();
+      const iconRect = icon?.getBoundingClientRect();
+      return {
+        buttonHeight: buttonRect.height,
+        buttonWidth: buttonRect.width,
+        iconHeight: iconRect?.height || 0,
+        iconWidth: iconRect?.width || 0
+      };
+    });
+    expect(editButtonSizes.buttonHeight).toBeLessThanOrEqual(40);
+    expect(editButtonSizes.buttonWidth).toBeLessThanOrEqual(40);
+    expect(editButtonSizes.iconHeight).toBeLessThanOrEqual(16);
+    expect(editButtonSizes.iconWidth).toBeLessThanOrEqual(16);
+
     await editWorkspace.click();
     await expect(workspaceDialog).toBeVisible();
     await expect(workspaceInput).toHaveValue(workspaceId);
@@ -158,6 +333,9 @@ test.describe("QA Lab", () => {
       )
       .toEqual({ start: 0, end: workspaceId.length });
 
+    await clickDialogBackdrop(page);
+    await expect(workspaceDialog).toBeVisible();
+    await expect(page.getByRole("alertdialog")).toHaveCount(0);
     await page.keyboard.press("Escape");
     await expect(workspaceDialog).toBeHidden();
     await expect(page.getByRole("alertdialog")).toHaveCount(0);
@@ -181,6 +359,10 @@ test.describe("QA Lab", () => {
 
     const otherWorkspaceId = randomUUID();
     await workspaceInput.fill(otherWorkspaceId);
+    await clickDialogBackdrop(page);
+    await expect(workspaceDialog).toBeVisible();
+    await expect(workspaceInput).toHaveValue(otherWorkspaceId);
+    await expect(page.getByRole("alertdialog")).toHaveCount(0);
     await page.keyboard.press("Escape");
 
     const warning = page.getByRole("alertdialog", {
@@ -247,6 +429,7 @@ test.describe("QA Lab", () => {
   });
 
   test("переключает Workspace, изолирует данные и сохраняет выбор", async ({ page }) => {
+    await installClipboardMock(page);
     await page.goto("/api-lab.html");
     const workspaceValue = page.locator("[data-workspace-id]");
     await expect(workspaceValue).not.toHaveText("создаётся…");
@@ -302,6 +485,12 @@ test.describe("QA Lab", () => {
     expect(
       await page.evaluate(() => localStorage.getItem("qa-lab-workspace-id"))
     ).toBe(workspaceBId);
+    const copyWorkspace = page.getByRole("button", {
+      name: "Копировать Workspace ID"
+    });
+    await copyWorkspace.click();
+    expect((await readClipboardState(page)).writes.at(-1)).toBe(workspaceBId);
+    await expect(copyWorkspace).toHaveAttribute("data-tooltip", "Скопировано");
 
     const reloadB = waitForWorkspaceListResponse(page, workspaceBId);
     await page.reload();
@@ -551,10 +740,7 @@ test.describe("QA Lab", () => {
         url.searchParams.get("status") === "testing"
       );
     });
-    await page
-      .getByRole("search", { name: "Поиск и фильтры дефектов" })
-      .getByLabel("Статус")
-      .selectOption("testing");
+    await clickFilterCheckbox(page, "status", "Тестирование");
     expect((await testingFilterPromise).status()).toBe(200);
     await expect(page.getByRole("article", { name: title })).toBeVisible();
 
@@ -566,10 +752,7 @@ test.describe("QA Lab", () => {
         url.searchParams.get("severity") === "blocker"
       );
     });
-    await page
-      .getByRole("search", { name: "Поиск и фильтры дефектов" })
-      .getByLabel("Критичность")
-      .selectOption("blocker");
+    await clickFilterCheckbox(page, "severity", "Блокер");
     expect((await blockerFilterPromise).status()).toBe(200);
     await expect(page.getByRole("article", { name: title })).toBeVisible();
 
@@ -652,6 +835,256 @@ test.describe("QA Lab", () => {
     await page.reload();
     expect((await finalListPromise).status()).toBe(200);
     await expect(page.getByRole("heading", { name: updatedTitle })).toHaveCount(0);
+  });
+
+  test("применяет мультивыбор фильтров и сворачивает полный набор в Все", async ({
+    page,
+    workspaceId
+  }) => {
+    const needle = `multi-${workspaceId.slice(0, 8)}`;
+    const fixturePayloads: TestIssuePayload[] = [
+      {
+        title: `${needle} open high`,
+        description: "Совпадает с поиском, открытым статусом и высокой критичностью.",
+        severity: "high",
+        status: "open"
+      },
+      {
+        title: `${needle} testing blocker`,
+        description: "Совпадает с поиском, тестированием и критичностью блокер.",
+        severity: "blocker",
+        status: "testing"
+      },
+      {
+        title: `${needle} open low`,
+        description: "Совпадает с поиском и статусом, но не с критичностью.",
+        severity: "low",
+        status: "open"
+      },
+      {
+        title: `other-${workspaceId.slice(0, 8)} testing high`,
+        description: "Совпадает со статусом и критичностью, но не с поиском.",
+        severity: "high",
+        status: "testing"
+      },
+      {
+        title: `${needle} resolved blocker`,
+        description: "Совпадает с поиском и критичностью, но не со статусом.",
+        severity: "blocker",
+        status: "resolved"
+      },
+      {
+        title: `${needle} in progress critical`,
+        description: "Дополнительная запись для полного набора статусов.",
+        severity: "critical",
+        status: "in_progress"
+      }
+    ];
+
+    const issues: TestIssue[] = [];
+    for (const payload of fixturePayloads) {
+      issues.push(await createFilterIssueFixture(page, workspaceId, payload));
+    }
+
+    await page.goto("/api-lab.html");
+    await expect(page.getByRole("article", { name: issues[0].title })).toBeVisible();
+
+    const statusTrigger = getFilterTrigger(page, "status");
+    await expect(statusTrigger).toHaveText("Все статусы");
+    await expect(statusTrigger).toHaveAccessibleDescription("Выбраны все статусы");
+    await openFilterMultiselect(page, "status");
+    await expect(getFilterCheckbox(page, "status", "Все статусы")).toBeChecked();
+    await expect(getFilterCheckbox(page, "status", "Открыт")).not.toBeChecked();
+
+    await page.keyboard.press("Escape");
+    await expect(statusTrigger).toHaveAttribute("aria-expanded", "false");
+    await expect(statusTrigger).toBeFocused();
+
+    const openResponsePromise = waitForFilteredListResponse(page, {
+      status: ["open"]
+    });
+    await clickFilterCheckbox(page, "status", "Открыт");
+    const openResponse = await openResponsePromise;
+    expect(openResponse.status()).toBe(200);
+    expect(
+      ((await openResponse.json()) as { items: TestIssue[] }).items
+        .map((issue) => issue.title)
+        .sort()
+    ).toEqual([fixturePayloads[0].title, fixturePayloads[2].title].sort());
+    await expect(statusTrigger).toHaveText("Открыт");
+    await expect(getFilterCheckbox(page, "status", "Все статусы")).not.toBeChecked();
+    await expect(getFilterCheckbox(page, "status", "Открыт")).toBeChecked();
+
+    const statusMultiResponsePromise = waitForFilteredListResponse(page, {
+      status: ["open", "testing"]
+    });
+    await clickFilterCheckbox(page, "status", "Тестирование");
+    const statusMultiResponse = await statusMultiResponsePromise;
+    expect(statusMultiResponse.status()).toBe(200);
+    expect(new URL(statusMultiResponse.url()).searchParams.getAll("status")).toEqual([
+      "open",
+      "testing"
+    ]);
+    await expect(statusTrigger).toHaveText("2 выбрано");
+    await expect(statusTrigger).toHaveAccessibleDescription(
+      "Выбрано: Открыт, Тестирование"
+    );
+
+    const searchInput = page
+      .getByRole("search", { name: "Поиск и фильтры дефектов" })
+      .getByLabel("Поиск");
+    const searchResponsePromise = waitForFilteredListResponse(page, {
+      q: needle,
+      status: ["open", "testing"]
+    });
+    await searchInput.fill(needle);
+    expect((await searchResponsePromise).status()).toBe(200);
+
+    const highResponsePromise = waitForFilteredListResponse(page, {
+      q: needle,
+      severity: ["high"],
+      status: ["open", "testing"]
+    });
+    await clickFilterCheckbox(page, "severity", "Высокая");
+    expect((await highResponsePromise).status()).toBe(200);
+
+    const combinedResponsePromise = waitForFilteredListResponse(page, {
+      q: needle,
+      severity: ["high", "blocker"],
+      status: ["open", "testing"]
+    });
+    await clickFilterCheckbox(page, "severity", "Блокер");
+    const combinedResponse = await combinedResponsePromise;
+    expect(combinedResponse.status()).toBe(200);
+    const combinedUrl = new URL(combinedResponse.url());
+    expect(combinedUrl.searchParams.getAll("status")).toEqual(["open", "testing"]);
+    expect(combinedUrl.searchParams.getAll("severity")).toEqual([
+      "high",
+      "blocker"
+    ]);
+    expect(
+      ((await combinedResponse.json()) as { items: TestIssue[] }).items
+        .map((issue) => issue.title)
+        .sort()
+    ).toEqual([fixturePayloads[0].title, fixturePayloads[1].title].sort());
+    await expect(page.getByRole("article", { name: fixturePayloads[0].title })).toBeVisible();
+    await expect(page.getByRole("article", { name: fixturePayloads[1].title })).toBeVisible();
+    await expect(page.getByRole("article", { name: fixturePayloads[2].title })).toHaveCount(0);
+    await expect(page.getByRole("article", { name: fixturePayloads[3].title })).toHaveCount(0);
+
+    const inspectedUrl = new URL(
+      await page.locator("[data-request-url]").innerText(),
+      "http://example.test"
+    );
+    expect(inspectedUrl.searchParams.getAll("status")).toEqual(["open", "testing"]);
+    expect(inspectedUrl.searchParams.getAll("severity")).toEqual([
+      "high",
+      "blocker"
+    ]);
+
+    const threeStatusesPromise = waitForFilteredListResponse(page, {
+      q: needle,
+      severity: ["high", "blocker"],
+      status: ["open", "in_progress", "testing"]
+    });
+    await clickFilterCheckbox(page, "status", "В работе");
+    expect((await threeStatusesPromise).status()).toBe(200);
+
+    const allStatusesPromise = waitForFilteredListResponse(page, {
+      q: needle,
+      severity: ["high", "blocker"]
+    });
+    await clickFilterCheckbox(page, "status", "Решён");
+    expect((await allStatusesPromise).status()).toBe(200);
+    await expect(statusTrigger).toHaveText("Все статусы");
+    await expect(statusTrigger).toHaveAccessibleDescription("Выбраны все статусы");
+    await expect(getFilterCheckbox(page, "status", "Все статусы")).toBeChecked();
+    for (const label of ["Открыт", "В работе", "Тестирование", "Решён"]) {
+      await expect(getFilterCheckbox(page, "status", label)).not.toBeChecked();
+    }
+
+    const lowSeverityPromise = waitForFilteredListResponse(page, {
+      q: needle,
+      severity: ["low", "high", "blocker"]
+    });
+    await clickFilterCheckbox(page, "severity", "Низкая");
+    expect((await lowSeverityPromise).status()).toBe(200);
+
+    const mediumSeverityPromise = waitForFilteredListResponse(page, {
+      q: needle,
+      severity: ["low", "medium", "high", "blocker"]
+    });
+    await clickFilterCheckbox(page, "severity", "Средняя");
+    expect((await mediumSeverityPromise).status()).toBe(200);
+
+    const allSeveritiesPromise = waitForFilteredListResponse(page, { q: needle });
+    await clickFilterCheckbox(page, "severity", "Критическая");
+    expect((await allSeveritiesPromise).status()).toBe(200);
+    const severityTrigger = getFilterTrigger(page, "severity");
+    await expect(severityTrigger).toHaveText("Все значения");
+    await expect(severityTrigger).toHaveAccessibleDescription(
+      "Выбраны все значения критичности"
+    );
+    await expect(getFilterCheckbox(page, "severity", "Все значения")).toBeChecked();
+    for (const label of [
+      "Низкая",
+      "Средняя",
+      "Высокая",
+      "Критическая",
+      "Блокер"
+    ]) {
+      await expect(getFilterCheckbox(page, "severity", label)).not.toBeChecked();
+    }
+
+    const resetResponsePromise = waitForFilteredListResponse(page, {});
+    await page
+      .getByRole("search", { name: "Поиск и фильтры дефектов" })
+      .getByRole("button", { name: "Сбросить", exact: true })
+      .click();
+    expect((await resetResponsePromise).status()).toBe(200);
+    await expect(searchInput).toHaveValue("");
+    await expect(statusTrigger).toHaveAttribute("aria-expanded", "false");
+    await expect(statusTrigger).toHaveText("Все статусы");
+    await expect(getFilterTrigger(page, "severity")).toHaveText("Все значения");
+    await expect(getFilterCheckbox(page, "severity", "Все значения")).toBeChecked();
+    await expect(page.getByRole("article")).toHaveCount(fixturePayloads.length);
+  });
+
+  test("оставляет мультифильтры доступными на мобильном экране", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto("/api-lab.html");
+
+    const statusTrigger = getFilterTrigger(page, "status");
+    const severityTrigger = getFilterTrigger(page, "severity");
+    await openFilterMultiselect(page, "status");
+
+    const sizes = await getFilterMultiselect(page, "status").evaluate((component) => {
+      const trigger = component.querySelector("[data-filter-trigger]");
+      const options = Array.from(
+        component.querySelectorAll<HTMLElement>(".filter-multiselect-option")
+      );
+      if (!(trigger instanceof HTMLElement)) throw new Error("Не найден триггер");
+      return {
+        optionHeights: options.map((option) => option.getBoundingClientRect().height),
+        triggerHeight: trigger.getBoundingClientRect().height
+      };
+    });
+    expect(sizes.triggerHeight).toBeGreaterThanOrEqual(44);
+    expect(Math.min(...sizes.optionHeights)).toBeGreaterThanOrEqual(44);
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= window.innerWidth
+      )
+    ).toBe(true);
+
+    await openFilterMultiselect(page, "severity");
+    await expect(statusTrigger).toHaveAttribute("aria-expanded", "false");
+    await expect(severityTrigger).toHaveAttribute("aria-expanded", "true");
+    await expect(getFilterCheckbox(page, "severity", "Все значения")).toBeFocused();
+
+    await page.keyboard.press("Escape");
+    await expect(severityTrigger).toHaveAttribute("aria-expanded", "false");
+    await expect(severityTrigger).toBeFocused();
   });
 
   test("меняет статус непосредственно из карточки по статусной модели", async ({
@@ -866,9 +1299,6 @@ test.describe("QA Lab", () => {
 
     await page.goto("/api-lab.html");
 
-    const statusFilter = page
-      .getByRole("search", { name: "Поиск и фильтры дефектов" })
-      .getByLabel("Статус");
     const patchPromise = waitForApiResponse(page, "PATCH", `/api/issues/${issue.id}`);
     await getCardStatusControl(page, issue.title).selectOption("in_progress");
     await patchStarted;
@@ -877,7 +1307,7 @@ test.describe("QA Lab", () => {
       const url = new URL(response.url());
       return url.pathname === "/api/issues" && url.searchParams.get("status") === "open";
     });
-    await statusFilter.selectOption("open");
+    await clickFilterCheckbox(page, "status", "Открыт");
     expect((await openFilterPromise).status()).toBe(200);
     await expect(page.getByRole("article", { name: issue.title })).toBeVisible();
 
@@ -895,14 +1325,21 @@ test.describe("QA Lab", () => {
       "Карточка скрыта текущим фильтром."
     );
 
+    const allStatusesPromise = page.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return url.pathname === "/api/issues" && !url.searchParams.has("status");
+    });
+    await clickFilterCheckbox(page, "status", "Все статусы");
+    expect((await allStatusesPromise).status()).toBe(200);
+
     const inProgressFilterPromise = page.waitForResponse((response) => {
       const url = new URL(response.url());
       return (
         url.pathname === "/api/issues" &&
-        url.searchParams.get("status") === "in_progress"
+        url.searchParams.getAll("status").join(",") === "in_progress"
       );
     });
-    await statusFilter.selectOption("in_progress");
+    await clickFilterCheckbox(page, "status", "В работе");
     expect((await inProgressFilterPromise).status()).toBe(200);
     await expect(getCardStatusControl(page, issue.title)).toHaveValue("in_progress");
   });
@@ -961,7 +1398,7 @@ test.describe("QA Lab", () => {
     await expect(getCardStatusControl(page, issue.title)).toHaveValue("in_progress");
   });
 
-  test("закрывает карточку просмотра по Escape и клику вне неё", async ({
+  test("открывает карточку кликом по записи и закрывает просмотр", async ({
     page,
     workspaceId
   }) => {
@@ -971,10 +1408,13 @@ test.describe("QA Lab", () => {
     const issueCard = page.getByRole("article", { name: issue.title });
     const detailsDialog = page.getByRole("dialog", { name: issue.title });
 
-    await issueCard.getByRole("button", { name: "Открыть" }).click();
+    const detailsRequest = waitForApiResponse(page, "GET", `/api/issues/${issue.id}`);
+    await issueCard.getByRole("heading", { name: issue.title }).click();
+    expect((await detailsRequest).status()).toBe(200);
     await expect(detailsDialog).toBeVisible();
     await page.keyboard.press("Escape");
     await expect(detailsDialog).toBeHidden();
+    await expect(issueCard.getByRole("button", { name: "Открыть" })).toBeFocused();
 
     await issueCard.getByRole("button", { name: "Открыть" }).click();
     await expect(detailsDialog).toBeVisible();
@@ -1087,7 +1527,7 @@ test.describe("QA Lab", () => {
     await expect(createDialog).toBeHidden();
   });
 
-  test("закрывает неизменённую или восстановленную форму редактирования", async ({
+  test("не закрывает форму редактирования по backdrop", async ({
     page,
     workspaceId
   }) => {
@@ -1118,8 +1558,10 @@ test.describe("QA Lab", () => {
     await editDialog.getByLabel("Статус").selectOption(issue.status);
     await clickDialogBackdrop(page);
 
-    await expect(editDialog).toBeHidden();
+    await expect(editDialog).toBeVisible();
     await expect(page.getByRole("alertdialog")).toHaveCount(0);
+    await page.keyboard.press("Escape");
+    await expect(editDialog).toBeHidden();
   });
 
   test("предупреждает об изменениях при редактировании и позволяет их отбросить", async ({
@@ -1151,6 +1593,10 @@ test.describe("QA Lab", () => {
     await expect(statusInput).toHaveValue("in_progress");
 
     await clickDialogBackdrop(page);
+    await expect(editDialog).toBeVisible();
+    await expect(statusInput).toHaveValue("in_progress");
+    await expect(warningDialog).toBeHidden();
+    await page.keyboard.press("Escape");
     await expect(warningDialog).toBeVisible();
     await warningDialog
       .getByRole("button", { name: "Закрыть без сохранения" })
@@ -1161,7 +1607,10 @@ test.describe("QA Lab", () => {
     await expect(getCardStatusControl(page, issue.title)).toHaveValue("open");
   });
 
-  test("показывает ошибку загрузки и успешно повторяет запрос", async ({ page }) => {
+  test("показывает ошибку загрузки и успешно повторяет запрос", async ({
+    page,
+    workspaceId
+  }) => {
     let failedOnce = false;
 
     await page.route("**/api/issues", async (route) => {
@@ -1187,11 +1636,273 @@ test.describe("QA Lab", () => {
 
     await page.goto("/api-lab.html");
     await expect(page.getByRole("alert").filter({ hasText: "Diagnostic failure" })).toBeVisible();
+    const failedCurl = await page.locator("[data-curl-command]").textContent();
+    expect(failedCurl).toContain("curl --request GET");
+    expect(failedCurl).toContain(
+      `--url '${new URL(page.url()).origin}/api/issues'`
+    );
+    expect(failedCurl).toContain(
+      `--header 'X-Demo-Workspace-Id: ${workspaceId}'`
+    );
 
     await page.getByRole("button", { name: "Повторить" }).click();
 
     await expect(page.getByRole("heading", { name: "Дефектов пока нет" })).toBeVisible();
     await expect(page.locator("[data-load-error]")).toBeHidden();
+  });
+
+  test("показывает и копирует воспроизводимый cURL для GET", async ({
+    page,
+    workspaceId
+  }) => {
+    await installClipboardMock(page);
+    await page.goto("/api-lab.html");
+
+    const inspector = page.getByRole("complementary", {
+      name: "Последний API-запрос"
+    });
+    const requestSection = inspector.locator("[data-request-body-section]");
+    const responseSection = inspector.locator("[data-response-body-section]");
+    const curlSection = inspector.locator("[data-curl-section]");
+
+    await expect(inspector.locator("[data-api-details]")).toBeVisible();
+    await expect(requestSection).toBeHidden();
+    await expect(
+      inspector.getByRole("button", { name: "Копировать тело запроса" })
+    ).toBeHidden();
+    await expect(responseSection).toBeVisible();
+    await expect(curlSection).toHaveJSProperty("open", false);
+
+    await curlSection.locator("summary").click();
+    const curlCode = inspector.locator("[data-curl-command]");
+    const curlCommand = await curlCode.textContent();
+    const origin = new URL(page.url()).origin;
+
+    expect(curlCommand).toContain("curl --request GET");
+    expect(curlCommand).toContain(`--url '${origin}/api/issues'`);
+    expect(curlCommand).toContain("--header 'Accept: application/json'");
+    expect(curlCommand).toContain(
+      `--header 'X-Demo-Workspace-Id: ${workspaceId}'`
+    );
+    expect(curlCommand).not.toContain("Content-Type");
+    expect(curlCommand).not.toContain("--data-raw");
+
+    const copyCurl = inspector.getByRole("button", { name: "Копировать cURL" });
+    await expect(copyCurl).toHaveAttribute("data-tooltip", "Копировать");
+    await expect(copyCurl.locator(".copy-icon")).toBeVisible();
+    expect((await copyCurl.innerText()).trim()).toBe("");
+    const copyButtonBox = await copyCurl.boundingBox();
+    expect(copyButtonBox).not.toBeNull();
+    expect(copyButtonBox!.height).toBeLessThanOrEqual(40);
+    expect(copyButtonBox!.width).toBeLessThanOrEqual(40);
+    await copyCurl.hover();
+    await expect
+      .poll(() =>
+        copyCurl.evaluate(
+          (button) => getComputedStyle(button, "::after").opacity
+        )
+      )
+      .toBe("1");
+    await copyCurl.focus();
+    await page.keyboard.press("Enter");
+    await expect(copyCurl).toHaveAttribute("data-tooltip", "Скопировано");
+    await expect(copyCurl).toBeFocused();
+    expect((await readClipboardState(page)).writes).toEqual([curlCommand]);
+    await expect(inspector.locator("[data-api-copy-status]")).toHaveText(
+      "cURL скопирован."
+    );
+
+    await responseSection.locator("summary").click();
+    const responseText = await inspector.locator("[data-response-json]").textContent();
+    expect(JSON.parse(responseText || "")).toEqual({ items: [], total: 0 });
+    const copyResponse = inspector.getByRole("button", {
+      name: "Копировать тело ответа"
+    });
+    await copyResponse.focus();
+    await page.keyboard.press("Enter");
+    await expect(copyResponse).toHaveAttribute("data-tooltip", "Скопировано");
+    expect((await readClipboardState(page)).writes.at(-1)).toBe(responseText);
+
+    const query = "O'Reilly Привет & $HOME";
+    const filteredPromise = page.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return (
+        response.request().method() === "GET" &&
+        url.pathname === "/api/issues" &&
+        url.searchParams.get("q") === query
+      );
+    });
+    await page
+      .getByRole("search", { name: "Поиск и фильтры дефектов" })
+      .getByLabel("Поиск")
+      .fill(query);
+    const filteredResponse = await filteredPromise;
+    expect(filteredResponse.status()).toBe(200);
+
+    const filteredCurl = await curlCode.textContent();
+    expect(filteredCurl).toContain(
+      "--url " + quoteShellArgument(filteredResponse.url())
+    );
+    expect(filteredCurl).not.toContain("Content-Type");
+    expect(filteredCurl).not.toContain("--data-raw");
+  });
+
+  test("копирует тела POST и формирует shell-safe cURL", async ({
+    page,
+    workspaceId
+  }) => {
+    await installClipboardMock(page);
+    const title = `O'Reilly defect ${workspaceId.slice(0, 8)}`;
+    const description =
+      "Проверка кавычек O'Reilly, $HOME, `command` и обратного слеша \\\\.\n" +
+      "Вторая строка описания дефекта.";
+
+    await page.goto("/api-lab.html");
+    await getHeaderCreateButton(page).click();
+
+    const createDialog = page.getByRole("dialog", { name: "Создать дефект" });
+    await createDialog.getByLabel("Название").fill(title);
+    await createDialog.getByLabel("Описание").fill(description);
+
+    const postPromise = waitForApiResponse(page, "POST", "/api/issues");
+    await createDialog.getByRole("button", { name: "Создать", exact: true }).click();
+    const postResponse = await postPromise;
+    expect(postResponse.status()).toBe(201);
+
+    const inspector = page.getByRole("complementary", {
+      name: "Последний API-запрос"
+    });
+    const requestSection = inspector.locator("[data-request-body-section]");
+    const responseSection = inspector.locator("[data-response-body-section]");
+    const curlSection = inspector.locator("[data-curl-section]");
+    await expect(inspector.locator("[data-request-method]")).toHaveText("POST");
+
+    await requestSection.locator("summary").click();
+    const requestText = await inspector.locator("[data-request-json]").textContent();
+    expect(JSON.parse(requestText || "")).toEqual(
+      postResponse.request().postDataJSON()
+    );
+    const copyRequest = inspector.getByRole("button", {
+      name: "Копировать тело запроса"
+    });
+    await copyRequest.click();
+    await expect(copyRequest).toHaveAttribute("data-tooltip", "Скопировано");
+    expect((await readClipboardState(page)).writes.at(-1)).toBe(requestText);
+
+    await responseSection.locator("summary").click();
+    const responseText = await inspector.locator("[data-response-json]").textContent();
+    expect(JSON.parse(responseText || "")).toEqual(await postResponse.json());
+    const copyResponse = inspector.getByRole("button", {
+      name: "Копировать тело ответа"
+    });
+    await copyResponse.click();
+    await expect(copyResponse).toHaveAttribute("data-tooltip", "Скопировано");
+    expect((await readClipboardState(page)).writes.at(-1)).toBe(responseText);
+
+    await curlSection.locator("summary").click();
+    const curlCommand = await inspector.locator("[data-curl-command]").textContent();
+    const serializedBody = postResponse.request().postData();
+    const origin = new URL(page.url()).origin;
+
+    expect(curlCommand).toContain("curl --request POST");
+    expect(curlCommand).toContain(`--url '${origin}/api/issues'`);
+    expect(curlCommand).toContain("--header 'Accept: application/json'");
+    expect(curlCommand).toContain(
+      `--header 'X-Demo-Workspace-Id: ${workspaceId}'`
+    );
+    expect(curlCommand).toContain("--header 'Content-Type: application/json'");
+    expect(curlCommand).toContain(
+      "--data-raw " + quoteShellArgument(serializedBody || "")
+    );
+    expect(curlCommand).toContain("O'\"'\"'Reilly");
+
+    const copyCurl = inspector.getByRole("button", { name: "Копировать cURL" });
+    await copyCurl.click();
+    await expect(copyCurl).toHaveAttribute("data-tooltip", "Скопировано");
+    expect((await readClipboardState(page)).writes.at(-1)).toBe(curlCommand);
+  });
+
+  test("очищает старые тела для DELETE без содержимого", async ({
+    page,
+    workspaceId
+  }) => {
+    const issue = await createIssueFixture(page, workspaceId);
+    await page.goto("/api-lab.html");
+
+    const card = page.getByRole("article", { name: issue.title });
+    await card.getByRole("button", { name: "Удалить" }).click();
+    const deletePromise = waitForApiResponse(page, "DELETE", `/api/issues/${issue.id}`);
+    await page
+      .getByRole("dialog", { name: "Удалить дефект?" })
+      .getByRole("button", { name: "Удалить" })
+      .click();
+    expect((await deletePromise).status()).toBe(204);
+
+    const inspector = page.getByRole("complementary", {
+      name: "Последний API-запрос"
+    });
+    await expect(inspector.locator("[data-request-method]")).toHaveText("DELETE");
+    await expect(inspector.locator("[data-request-body-section]")).toBeHidden();
+    await expect(inspector.locator("[data-response-body-section]")).toBeHidden();
+    await expect(inspector.locator("[data-request-json]")).toBeEmpty();
+    await expect(inspector.locator("[data-response-json]")).toBeEmpty();
+
+    const curlSection = inspector.locator("[data-curl-section]");
+    await curlSection.locator("summary").click();
+    const curlCommand = await inspector.locator("[data-curl-command]").textContent();
+    expect(curlCommand).toContain("curl --request DELETE");
+    expect(curlCommand).toContain(`/api/issues/${issue.id}'`);
+    expect(curlCommand).not.toContain("Content-Type");
+    expect(curlCommand).not.toContain("--data-raw");
+    expect(curlCommand).not.toContain(issue.title);
+  });
+
+  test("использует fallback копирования и выделяет код при полном отказе", async ({
+    page
+  }) => {
+    await installClipboardMock(page, { rejectNative: true });
+    await page.goto("/api-lab.html");
+
+    const inspector = page.getByRole("complementary", {
+      name: "Последний API-запрос"
+    });
+    const curlSection = inspector.locator("[data-curl-section]");
+    await expect(inspector.locator("[data-api-details]")).toBeVisible();
+    await curlSection.locator("summary").click();
+
+    const curlPre = curlSection.locator("pre");
+    const curlCommand = await inspector.locator("[data-curl-command]").textContent();
+    const copyCurl = inspector.getByRole("button", { name: "Копировать cURL" });
+    await copyCurl.focus();
+    await page.keyboard.press("Enter");
+    await expect(copyCurl).toHaveAttribute("data-tooltip", "Скопировано");
+    await expect(copyCurl).toBeFocused();
+    let clipboardState = await readClipboardState(page);
+    expect(clipboardState.writes).toEqual([]);
+    expect(clipboardState.fallbackWrites).toEqual([curlCommand]);
+
+    await page.evaluate(() => {
+      (
+        window as typeof window & {
+          __clipboardTest: ClipboardTestState;
+        }
+      ).__clipboardTest.fallbackSucceeds = false;
+    });
+    await page.keyboard.press("Enter");
+
+    await expect(copyCurl).toHaveAttribute("data-tooltip", "Не скопировано");
+    await expect(curlPre).toBeFocused();
+    await expect(curlSection.locator("[data-copy-message='curl']")).toHaveText(
+      "Содержимое выделено — скопируйте его вручную (Ctrl+C или ⌘C)."
+    );
+    await expect(curlSection.locator("[data-copy-message='curl']")).toBeVisible();
+    await expect(inspector.locator("[data-api-copy-status]")).toContainText(
+      "Содержимое выделено"
+    );
+    expect(await page.evaluate(() => window.getSelection()?.toString())).toBe(curlCommand);
+    clipboardState = await readClipboardState(page);
+    expect(clipboardState.attempts).toEqual([curlCommand, curlCommand]);
+    expect(clipboardState.fallbackWrites).toEqual([curlCommand]);
   });
 
   test("применяет светлую палитру к последнему API-запросу", async ({ page }) => {
@@ -1206,6 +1917,7 @@ test.describe("QA Lab", () => {
 
     await expect(inspector.locator("[data-api-details]")).toBeVisible();
     await inspector.locator("[data-response-body-section] summary").click();
+    await inspector.locator("[data-curl-section] summary").click();
 
     const readInspectorPalette = () =>
       inspector.evaluate((element) => {
@@ -1219,6 +1931,11 @@ test.describe("QA Lab", () => {
             color: style.color
           };
         };
+        const readDocumentBackground = (selector: string) => {
+          const target = document.querySelector(selector);
+          if (!(target instanceof HTMLElement)) throw new Error(`Не найден ${selector}`);
+          return getComputedStyle(target).backgroundColor;
+        };
 
         const style = getComputedStyle(element);
         return {
@@ -1227,8 +1944,16 @@ test.describe("QA Lab", () => {
           color: style.color,
           eyebrow: readStyle(".eyebrow"),
           json: readStyle("[data-response-body-section] .api-json"),
+          curl: readStyle("[data-curl-section] .api-json"),
+          copyButton: readStyle("[data-copy-api='curl']"),
           metaLabel: readStyle(".request-meta dt"),
-          summary: readStyle("[data-response-body-section] summary")
+          summary: readStyle("[data-response-body-section] summary"),
+          surfaces: {
+            body: readDocumentBackground("body"),
+            content: readDocumentBackground(".lab-content"),
+            filter: readDocumentBackground(".filter-bar"),
+            issues: readDocumentBackground(".issues-panel")
+          }
         };
       });
 
@@ -1253,9 +1978,23 @@ test.describe("QA Lab", () => {
       darkPalette.json.backgroundColor
     );
     expect(lightPalette.json.color).not.toBe(darkPalette.json.color);
+    expect(lightPalette.curl.backgroundColor).not.toBe(
+      darkPalette.curl.backgroundColor
+    );
+    expect(lightPalette.curl.color).not.toBe(darkPalette.curl.color);
+    expect(lightPalette.copyButton.backgroundColor).not.toBe(
+      darkPalette.copyButton.backgroundColor
+    );
+    expect(lightPalette.copyButton.color).not.toBe(darkPalette.copyButton.color);
     expect(lightPalette.eyebrow.color).not.toBe(darkPalette.eyebrow.color);
     expect(lightPalette.metaLabel.color).not.toBe(darkPalette.metaLabel.color);
     expect(lightPalette.summary.color).not.toBe(darkPalette.summary.color);
+    for (const surface of ["body", "content", "filter", "issues"] as const) {
+      expect(darkPalette.surfaces[surface]).not.toBe("rgba(0, 0, 0, 0)");
+      expect(lightPalette.surfaces[surface]).not.toBe(
+        darkPalette.surfaces[surface]
+      );
+    }
     expect(lightPalette.backgroundColor).toBe(referencePalette.backgroundColor);
     expect(lightPalette.borderColor).toBe(referencePalette.borderColor);
     expect(lightPalette.color).toBe(referencePalette.color);

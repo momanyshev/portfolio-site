@@ -190,7 +190,7 @@
           "response": []
         },
         {
-          "name": "02 — Получить отфильтрованный список",
+          "name": "02 — Получить список по мультифильтрам",
           "event": [
             {
               "listen": "test",
@@ -201,14 +201,16 @@
                   "  pm.response.to.have.status(200);",
                   "});",
                   "",
-                  "pm.test(\"Список содержит созданный дефект и соблюдает фильтры\", function () {",
+                  "pm.test(\"Список содержит созданный дефект и соблюдает мультифильтры\", function () {",
                   "  const body = pm.response.json();",
                   "  const issueId = pm.collectionVariables.get(\"issueId\");",
+                  "  const allowedStatuses = [\"open\", \"testing\"];",
+                  "  const allowedSeverities = [\"blocker\", \"high\"];",
                   "  pm.expect(body.items).to.be.an(\"array\");",
                   "  pm.expect(body.total).to.eql(body.items.length);",
                   "  pm.expect(body.items.every(function (issue) {",
                   "    const searchableText = `${issue.title}\\n${issue.description}`.toLocaleLowerCase(\"ru\");",
-                  "    return issue.status === \"open\" && issue.severity === \"blocker\" && searchableText.includes(\"кнопка\");",
+                  "    return allowedStatuses.includes(issue.status) && allowedSeverities.includes(issue.severity) && searchableText.includes(\"кнопка\");",
                   "  })).to.be.true;",
                   "",
                   "  const issue = body.items.find(function (item) { return item.id === issueId; });",
@@ -230,7 +232,7 @@
                 "value": "{{workspaceId}}"
               }
             ],
-            "url": "{{baseUrl}}/api/issues?status=open&severity=blocker&q=кнопка"
+            "url": "{{baseUrl}}/api/issues?status=open&status=testing&severity=blocker&severity=high&q=кнопка"
           },
           "response": []
         },
@@ -890,7 +892,7 @@
         },
         {
           "name": "02.3 — Query (data-driven)",
-          "description": "Запускайте с tests/api/data/query-validation-cases.json.",
+          "description": "Запускайте с tests/api/data/query-validation-cases.json. Разные повторяющиеся значения status/severity валидны и проверяются в CRUD smoke; эта папка покрывает невалидные значения, точные дубликаты, пустые значения и CSV.",
           "event": [],
           "item": [
             {

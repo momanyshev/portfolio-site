@@ -185,8 +185,15 @@ export default async function handler(request, context) {
 
       const normalizedQuery = filters.q.toLocaleLowerCase("ru");
       const items = (await listIssues(workspaceId))
-        .filter((issue) => !filters.status || issue.status === filters.status)
-        .filter((issue) => !filters.severity || issue.severity === filters.severity)
+        .filter(
+          (issue) =>
+            filters.status.length === 0 || filters.status.includes(issue.status)
+        )
+        .filter(
+          (issue) =>
+            filters.severity.length === 0 ||
+            filters.severity.includes(issue.severity)
+        )
         .filter((issue) => {
           if (!normalizedQuery) return true;
           return (issue.title + "\n" + issue.description)

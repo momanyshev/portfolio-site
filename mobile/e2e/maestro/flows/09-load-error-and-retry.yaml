@@ -1,0 +1,21 @@
+appId: ru.maksim.qalab
+name: 09 — Ошибка загрузки и повтор
+tags:
+  - manual-network
+  - errors
+---
+# Этот flow запускается на development client, собранном с недоступным API URL.
+- launchApp:
+    clearState: true
+    clearKeychain: true
+- extendedWaitUntil:
+    visible: "Не удалось загрузить дефекты"
+    timeout: 30000
+- assertVisible: "Не удалось связаться с API. Попробуйте ещё раз."
+- tapOn:
+    text: "^Повторить$"
+    enabled: true
+- extendedWaitUntil:
+    visible: "Не удалось загрузить дефекты"
+    timeout: 30000
+- assertVisible: "Повторить"

@@ -1,0 +1,38 @@
+appId: ru.maksim.qalab
+name: 06 — Быстрое изменение статуса
+tags:
+  - smoke
+  - status
+---
+- launchApp:
+    clearState: true
+    clearKeychain: true
+- extendedWaitUntil:
+    visible: "Дефектов пока нет"
+    timeout: 20000
+- tapOn:
+    id: create-issue-button
+- tapOn:
+    id: issue-title-input
+- inputText: "Maestro status defect"
+- tapOn:
+    id: issue-description-input
+- inputText: "Issue used for quick status update"
+- hideKeyboard
+- tapOn:
+    text: "^Создать$"
+    enabled: true
+- extendedWaitUntil:
+    visible: "Дефект создан."
+    timeout: 15000
+- scrollUntilVisible:
+    element: "Изменить статус дефекта «Maestro status defect». Текущий статус: Открыт"
+    direction: DOWN
+    timeout: 10000
+    visibilityPercentage: 80
+- tapOn: "Изменить статус дефекта «Maestro status defect». Текущий статус: Открыт"
+- tapOn: "^В работе$"
+- extendedWaitUntil:
+    visible: "Статус дефекта «Maestro status defect» изменён."
+    timeout: 15000
+- assertVisible: "Изменить статус дефекта «Maestro status defect». Текущий статус: В работе"

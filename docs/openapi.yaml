@@ -32,8 +32,10 @@ paths:
       description: |
         Returns issues from one workspace. All supplied filters are combined
         with AND. Search is a case-insensitive substring match over title and
-        description after trimming the query. Unknown and repeated query
-        parameters are rejected.
+        description after trimming the query. `status` and `severity` may be
+        repeated; values within one field are combined with OR. Unknown query
+        parameters, repeated `q`, duplicate filter values, and invalid values
+        are rejected.
 
         Items are ordered by `updatedAt` descending, then by `id` ascending.
         `total` is the number of items after filtering.
@@ -305,16 +307,34 @@ components:
       name: severity
       in: query
       required: false
-      description: Exact severity filter. Must not be repeated.
+      description: |
+        One or more severity values. Repeat the parameter to match any supplied
+        value, for example `severity=high&severity=blocker`.
+      style: form
+      explode: true
       schema:
-        $ref: "#/components/schemas/Severity"
+        type: array
+        minItems: 1
+        maxItems: 5
+        uniqueItems: true
+        items:
+          $ref: "#/components/schemas/Severity"
     StatusFilter:
       name: status
       in: query
       required: false
-      description: Exact status filter. Must not be repeated.
+      description: |
+        One or more status values. Repeat the parameter to match any supplied
+        value, for example `status=open&status=testing`.
+      style: form
+      explode: true
       schema:
-        $ref: "#/components/schemas/IssueStatus"
+        type: array
+        minItems: 1
+        maxItems: 4
+        uniqueItems: true
+        items:
+          $ref: "#/components/schemas/IssueStatus"
   headers:
     CacheControl:
       description: Prevents storage of workspace-specific responses by caches.
@@ -523,7 +543,8 @@ components:
     ListBadRequest:
       description: |
         Invalid workspace header (`INVALID_WORKSPACE`) or invalid, unknown, or
-        repeated query parameter (`INVALID_QUERY`).
+        duplicate query parameter value; `q` must not be repeated
+        (`INVALID_QUERY`).
       headers:
         Cache-Control:
           $ref: "#/components/headers/CacheControl"
@@ -550,7 +571,7 @@ components:
                   code: INVALID_QUERY
                   message: Query validation failed
                   fields:
-                    severity: "Query must be one of: low, medium, high, critical, blocker"
+                    severity: "Each query value must be one of: low, medium, high, critical, blocker"
                   requestId: d2865864-225a-4026-a2d7-0c063a06f985
     CreateBadRequest:
       description: |

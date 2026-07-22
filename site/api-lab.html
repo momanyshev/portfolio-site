@@ -67,7 +67,16 @@
             <div>
               <dt>Workspace</dt>
               <dd class="workspace-id-value">
-                <code data-workspace-id>создаётся…</code>
+                <button
+                  class="workspace-copy-button copy-tooltip-control"
+                  type="button"
+                  aria-label="Копировать Workspace ID"
+                  data-tooltip="Копировать"
+                  data-copy-context="Workspace ID"
+                  data-copy-workspace
+                >
+                  <code data-workspace-id>создаётся…</code>
+                </button>
                 <button
                   class="workspace-edit-button"
                   type="button"
@@ -137,24 +146,139 @@
           </div>
           <div class="form-field">
             <label for="filter-status">Статус</label>
-            <select id="filter-status" name="status">
-              <option value="">Все статусы</option>
-              <option value="open">Открыт</option>
-              <option value="in_progress">В работе</option>
-              <option value="testing">Тестирование</option>
-              <option value="resolved">Решён</option>
-            </select>
+            <div class="filter-multiselect" data-filter-multiselect="status">
+              <button
+                class="filter-multiselect-trigger"
+                id="filter-status"
+                type="button"
+                aria-expanded="false"
+                aria-controls="filter-status-menu"
+                aria-describedby="filter-status-description"
+                data-filter-trigger
+              >
+                <span data-filter-value>Все статусы</span>
+                <span class="filter-multiselect-chevron" aria-hidden="true"></span>
+              </button>
+              <span
+                class="visually-hidden"
+                id="filter-status-description"
+                data-filter-description
+              >Выбраны все статусы</span>
+              <div
+                class="filter-multiselect-menu"
+                id="filter-status-menu"
+                role="group"
+                aria-label="Значения фильтра «Статус»"
+                data-filter-menu
+                hidden
+              >
+                <label class="filter-multiselect-option is-all">
+                  <input type="checkbox" data-filter-all checked>
+                  <span>Все статусы</span>
+                </label>
+                <label class="filter-multiselect-option">
+                  <input type="checkbox" name="status" value="open" data-filter-option>
+                  <span>Открыт</span>
+                </label>
+                <label class="filter-multiselect-option">
+                  <input
+                    type="checkbox"
+                    name="status"
+                    value="in_progress"
+                    data-filter-option
+                  >
+                  <span>В работе</span>
+                </label>
+                <label class="filter-multiselect-option">
+                  <input
+                    type="checkbox"
+                    name="status"
+                    value="testing"
+                    data-filter-option
+                  >
+                  <span>Тестирование</span>
+                </label>
+                <label class="filter-multiselect-option">
+                  <input
+                    type="checkbox"
+                    name="status"
+                    value="resolved"
+                    data-filter-option
+                  >
+                  <span>Решён</span>
+                </label>
+              </div>
+            </div>
           </div>
           <div class="form-field">
             <label for="filter-severity">Критичность</label>
-            <select id="filter-severity" name="severity">
-              <option value="">Любая</option>
-              <option value="low">Низкая</option>
-              <option value="medium">Средняя</option>
-              <option value="high">Высокая</option>
-              <option value="critical">Критическая</option>
-              <option value="blocker">Блокер</option>
-            </select>
+            <div class="filter-multiselect" data-filter-multiselect="severity">
+              <button
+                class="filter-multiselect-trigger"
+                id="filter-severity"
+                type="button"
+                aria-expanded="false"
+                aria-controls="filter-severity-menu"
+                aria-describedby="filter-severity-description"
+                data-filter-trigger
+              >
+                <span data-filter-value>Все значения</span>
+                <span class="filter-multiselect-chevron" aria-hidden="true"></span>
+              </button>
+              <span
+                class="visually-hidden"
+                id="filter-severity-description"
+                data-filter-description
+              >Выбраны все значения критичности</span>
+              <div
+                class="filter-multiselect-menu"
+                id="filter-severity-menu"
+                role="group"
+                aria-label="Значения фильтра «Критичность»"
+                data-filter-menu
+                hidden
+              >
+                <label class="filter-multiselect-option is-all">
+                  <input type="checkbox" data-filter-all checked>
+                  <span>Все значения</span>
+                </label>
+                <label class="filter-multiselect-option">
+                  <input type="checkbox" name="severity" value="low" data-filter-option>
+                  <span>Низкая</span>
+                </label>
+                <label class="filter-multiselect-option">
+                  <input
+                    type="checkbox"
+                    name="severity"
+                    value="medium"
+                    data-filter-option
+                  >
+                  <span>Средняя</span>
+                </label>
+                <label class="filter-multiselect-option">
+                  <input type="checkbox" name="severity" value="high" data-filter-option>
+                  <span>Высокая</span>
+                </label>
+                <label class="filter-multiselect-option">
+                  <input
+                    type="checkbox"
+                    name="severity"
+                    value="critical"
+                    data-filter-option
+                  >
+                  <span>Критическая</span>
+                </label>
+                <label class="filter-multiselect-option">
+                  <input
+                    type="checkbox"
+                    name="severity"
+                    value="blocker"
+                    data-filter-option
+                  >
+                  <span>Блокер</span>
+                </label>
+              </div>
+            </div>
           </div>
           <button class="button secondary filter-reset" type="reset">
             Сбросить
@@ -245,12 +369,95 @@
 
               <details data-request-body-section hidden>
                 <summary>Тело запроса</summary>
-                <pre class="api-json"><code data-request-json></code></pre>
+                <div class="api-code-block">
+                  <pre
+                    class="api-json"
+                    tabindex="0"
+                    aria-label="Содержимое тела запроса"
+                  ><code data-request-json></code></pre>
+                  <button
+                    class="api-copy-button copy-tooltip-control"
+                    type="button"
+                    aria-label="Копировать тело запроса"
+                    data-tooltip="Копировать"
+                    data-copy-context="тело запроса"
+                    data-copy-api="request"
+                  >
+                    <svg class="copy-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                      <rect x="8" y="8" width="12" height="13" rx="2"></rect>
+                      <path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h3"></path>
+                    </svg>
+                  </button>
+                  <p
+                    class="api-copy-message"
+                    data-copy-message="request"
+                    hidden
+                  ></p>
+                </div>
               </details>
               <details data-response-body-section hidden>
                 <summary>Тело ответа</summary>
-                <pre class="api-json"><code data-response-json></code></pre>
+                <div class="api-code-block">
+                  <pre
+                    class="api-json"
+                    tabindex="0"
+                    aria-label="Содержимое тела ответа"
+                  ><code data-response-json></code></pre>
+                  <button
+                    class="api-copy-button copy-tooltip-control"
+                    type="button"
+                    aria-label="Копировать тело ответа"
+                    data-tooltip="Копировать"
+                    data-copy-context="тело ответа"
+                    data-copy-api="response"
+                  >
+                    <svg class="copy-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                      <rect x="8" y="8" width="12" height="13" rx="2"></rect>
+                      <path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h3"></path>
+                    </svg>
+                  </button>
+                  <p
+                    class="api-copy-message"
+                    data-copy-message="response"
+                    hidden
+                  ></p>
+                </div>
               </details>
+              <details data-curl-section>
+                <summary>cURL</summary>
+                <div class="api-code-block">
+                  <pre
+                    class="api-json"
+                    tabindex="0"
+                    aria-label="Команда cURL"
+                  ><code data-curl-command></code></pre>
+                  <button
+                    class="api-copy-button copy-tooltip-control"
+                    type="button"
+                    aria-label="Копировать cURL"
+                    data-tooltip="Копировать"
+                    data-copy-context="cURL"
+                    data-copy-api="curl"
+                  >
+                    <svg class="copy-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                      <rect x="8" y="8" width="12" height="13" rx="2"></rect>
+                      <path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h3"></path>
+                    </svg>
+                  </button>
+                  <p
+                    class="api-copy-message"
+                    data-copy-message="curl"
+                    hidden
+                  ></p>
+                </div>
+              </details>
+              <p
+                class="visually-hidden"
+                role="status"
+                aria-live="polite"
+                aria-atomic="true"
+                data-api-copy-status
+              ></p>
             </div>
           </aside>
         </div>

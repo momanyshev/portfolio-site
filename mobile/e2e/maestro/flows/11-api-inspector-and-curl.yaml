@@ -1,0 +1,102 @@
+appId: ru.maksim.qalab
+name: 11 — API-инспектор и копирование cURL
+tags:
+  - smoke
+  - inspector
+---
+- launchApp:
+    clearState: true
+    clearKeychain: true
+- extendedWaitUntil:
+    visible: "Дефектов пока нет"
+    timeout: 20000
+- tapOn:
+    id: create-issue-button
+- tapOn:
+    id: issue-title-input
+- inputText: "Maestro inspector defect"
+- tapOn:
+    id: issue-description-input
+- inputText: "Created to inspect POST request"
+- hideKeyboard
+- tapOn:
+    text: "^Создать$"
+    enabled: true
+- extendedWaitUntil:
+    visible: "Дефект создан."
+    timeout: 15000
+- tapOn: "API-запрос"
+- extendedWaitUntil:
+    visible:
+      id: api-inspector-screen
+    timeout: 10000
+- assertVisible: "Последний API-запрос"
+- assertVisible:
+    id: inspector-method
+    text: "POST"
+- assertVisible:
+    id: inspector-status
+    text: "201 Created"
+- assertVisible:
+    id: inspector-url
+
+# Request body.
+- scrollUntilVisible:
+    element:
+      id: inspector-request-toggle
+    direction: DOWN
+    timeout: 10000
+    visibilityPercentage: 80
+- tapOn:
+    id: inspector-request-toggle
+- assertVisible:
+    id: inspector-request-content
+- tapOn:
+    id: inspector-request-copy
+- assertVisible: "Тело запроса скопировано."
+- scrollUntilVisible:
+    element:
+      id: inspector-request-toggle
+    direction: UP
+    timeout: 10000
+    visibilityPercentage: 80
+- tapOn:
+    id: inspector-request-toggle
+
+# Response body.
+- scrollUntilVisible:
+    element:
+      id: inspector-response-toggle
+    direction: DOWN
+    timeout: 10000
+    visibilityPercentage: 80
+- tapOn:
+    id: inspector-response-toggle
+- assertVisible:
+    id: inspector-response-content
+- tapOn:
+    id: inspector-response-copy
+- assertVisible: "Тело ответа скопировано."
+- scrollUntilVisible:
+    element:
+      id: inspector-response-toggle
+    direction: UP
+    timeout: 10000
+    visibilityPercentage: 80
+- tapOn:
+    id: inspector-response-toggle
+
+# cURL.
+- scrollUntilVisible:
+    element:
+      id: inspector-curl-toggle
+    direction: DOWN
+    timeout: 10000
+    visibilityPercentage: 80
+- tapOn:
+    id: inspector-curl-toggle
+- assertVisible:
+    id: inspector-curl-content
+- tapOn:
+    id: inspector-curl-copy
+- assertVisible: "cURL скопировано."

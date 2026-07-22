@@ -1,0 +1,34 @@
+appId: ru.maksim.qalab
+name: 01 — Первый запуск и Workspace
+tags:
+  - smoke
+  - workspace
+---
+- launchApp:
+    clearState: true
+    clearKeychain: true
+- extendedWaitUntil:
+    visible:
+      id: workspace-id
+    timeout: 20000
+- assertVisible: "Трекер дефектов"
+- copyTextFrom:
+    id: workspace-id
+- evalScript: ${output.initialWorkspace = maestro.copiedText}
+- assertTrue:
+    condition: ${/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(output.initialWorkspace)}
+    label: Приложение создало Workspace UUID
+- tapOn: "Копировать Workspace ID"
+- assertVisible: "Workspace ID скопирован."
+- stopApp
+- launchApp
+- extendedWaitUntil:
+    visible:
+      id: workspace-id
+    timeout: 20000
+- copyTextFrom:
+    id: workspace-id
+- evalScript: ${output.restoredWorkspace = maestro.copiedText}
+- assertTrue:
+    condition: ${output.initialWorkspace === output.restoredWorkspace}
+    label: Workspace UUID сохранился после перезапуска

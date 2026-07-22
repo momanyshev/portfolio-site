@@ -19,7 +19,7 @@ tests/api/
 
 Папки коллекции:
 
-- `01 — CRUD smoke` — полный позитивный CRUD, включая `blocker`, цепочку `open → in_progress → testing → resolved`, фильтрацию по критичности, проверку удаления и teardown;
+- `01 — CRUD smoke` — полный позитивный CRUD, включая `blocker`, цепочку `open → in_progress → testing → resolved`, мультифильтры с повторяющимися `status`/`severity`, проверку удаления и teardown;
 - `02.1 — POST body (data-driven)` — негативная валидация POST;
 - `02.2 — PATCH body (data-driven)` — негативная валидация PATCH с отдельной фикстурой на каждой итерации;
 - `02.3 — Query (data-driven)` — негативная валидация query-параметров;
@@ -36,6 +36,25 @@ tests/api/
 - единый объект ошибки и совпадение `error.requestId` с заголовком.
 
 Ожидаемый статус и бизнес-значения проверяются на уровне конкретных запросов.
+
+### Query-параметры мультифильтров
+
+Для мультивыбора передавайте `status` и `severity` отдельными повторяющимися
+query-параметрами, например:
+
+```text
+?status=open&status=testing&severity=high&severity=blocker
+```
+
+Разные значения одного поля объединяются по правилу OR, а `status`, `severity`
+и `q` — по правилу AND. Один `status` или `severity` остаётся обратно
+совместимым. Не передавайте CSV: `status=open,testing` считается невалидным.
+
+API возвращает `400 INVALID_QUERY`, если `q` указан более одного раза, если
+конкретное значение `status`/`severity` продублировано, пусто или не входит в
+поддерживаемый enum. Позитивная обработка разных повторяющихся значений
+проверяется в `01 — CRUD smoke`, а перечисленные ошибки — в
+`02.3 — Query (data-driven)`.
 
 ## Локальный запуск
 
@@ -82,7 +101,7 @@ npx --no-install newman run tests/api/api-lab.postman_collection.json \
   -d tests/api/data/patch-validation-cases.json
 ```
 
-Query validation:
+Query validation (невалидные значения, точные дубликаты, пустые значения и CSV):
 
 ```bash
 npx --no-install newman run tests/api/api-lab.postman_collection.json \

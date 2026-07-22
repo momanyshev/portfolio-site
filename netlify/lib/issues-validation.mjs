@@ -136,21 +136,32 @@ export function validateIssuePayload(payload, { partial = false } = {}) {
   return { errors, value };
 }
 
+function validateEnumQueryValues(searchParams, field, allowedValues, errors) {
+  const values = searchParams.getAll(field);
+  if (values.some((value) => !allowedValues.includes(value))) {
+    errors[field] = "Each query value must be one of: " + allowedValues.join(", ");
+    return [];
+  }
+  if (new Set(values).size !== values.length) {
+    errors[field] = "Query parameter values must be unique";
+    return [];
+  }
+  return values;
+}
+
 export function validateListQuery(searchParams) {
   const errors = {};
-  const filters = { q: "", severity: "", status: "" };
+  const filters = { q: "", severity: [], status: [] };
 
   for (const key of new Set(searchParams.keys())) {
     if (!ALLOWED_QUERY_FIELDS.has(key)) {
       errors[key] = "Unknown query parameter";
-    } else if (searchParams.getAll(key).length > 1) {
+    } else if (key === "q" && searchParams.getAll(key).length > 1) {
       errors[key] = "Query parameter must not be repeated";
     }
   }
 
   const q = searchParams.get("q");
-  const severity = searchParams.get("severity");
-  const status = searchParams.get("status");
 
   if (q !== null) {
     filters.q = q.trim();
@@ -159,21 +170,18 @@ export function validateListQuery(searchParams) {
     }
   }
 
-  if (severity !== null) {
-    if (!ISSUE_SEVERITIES.includes(severity)) {
-      errors.severity = "Query must be one of: " + ISSUE_SEVERITIES.join(", ");
-    } else {
-      filters.severity = severity;
-    }
-  }
-
-  if (status !== null) {
-    if (!ISSUE_STATUSES.includes(status)) {
-      errors.status = "Query must be one of: " + ISSUE_STATUSES.join(", ");
-    } else {
-      filters.status = status;
-    }
-  }
+  filters.severity = validateEnumQueryValues(
+    searchParams,
+    "severity",
+    ISSUE_SEVERITIES,
+    errors
+  );
+  filters.status = validateEnumQueryValues(
+    searchParams,
+    "status",
+    ISSUE_STATUSES,
+    errors
+  );
 
   return { errors, filters };
 }

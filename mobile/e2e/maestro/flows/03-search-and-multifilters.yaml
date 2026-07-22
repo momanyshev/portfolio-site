@@ -1,0 +1,116 @@
+appId: ru.maksim.qalab
+name: 03 — Поиск и мультифильтры
+tags:
+  - extended
+  - filters
+---
+- launchApp:
+    clearState: true
+    clearKeychain: true
+- extendedWaitUntil:
+    visible: "Дефектов пока нет"
+    timeout: 20000
+
+# Открытый дефект средней критичности.
+- tapOn:
+    id: create-issue-button
+- tapOn:
+    id: issue-title-input
+- inputText: "Maestro filter open"
+- tapOn:
+    id: issue-description-input
+- inputText: "First issue for Maestro filtering"
+- hideKeyboard
+- tapOn:
+    text: "^Создать$"
+    enabled: true
+- extendedWaitUntil:
+    visible: "Дефект создан."
+    timeout: 15000
+
+# Дефект на тестировании высокой критичности.
+- tapOn:
+    id: create-issue-button
+- tapOn:
+    id: issue-title-input
+- inputText: "Maestro filter testing"
+- tapOn:
+    id: issue-description-input
+- inputText: "Second issue for Maestro filtering"
+- hideKeyboard
+- tapOn:
+    id: issue-severity-picker
+- tapOn: "^Высокая$"
+- tapOn:
+    id: issue-status-picker
+- tapOn: "^Тестирование$"
+- tapOn:
+    text: "^Создать$"
+    enabled: true
+- extendedWaitUntil:
+    visible: "Дефект создан."
+    timeout: 15000
+
+- scrollUntilVisible:
+    element:
+      id: issue-search-input
+    direction: UP
+    timeout: 10000
+    visibilityPercentage: 80
+
+# OR внутри статусов.
+- tapOn: "Все статусы"
+- assertVisible:
+    id: filter-modal-status
+- tapOn:
+    id: filter-status-open
+- tapOn:
+    id: filter-status-testing
+- tapOn: "^Готово$"
+- extendedWaitUntil:
+    visible: "Статусы: 2"
+    timeout: 10000
+
+# OR внутри criticality, AND между группами и поиском.
+- tapOn: "Все значения"
+- assertVisible:
+    id: filter-modal-severity
+- tapOn:
+    id: filter-severity-medium
+- tapOn:
+    id: filter-severity-high
+- tapOn: "^Готово$"
+- extendedWaitUntil:
+    visible: "Критичность: 2"
+    timeout: 10000
+- tapOn:
+    id: issue-search-input
+- inputText: "Maestro filter"
+- hideKeyboard
+- extendedWaitUntil:
+    visible: "2 дефекта"
+    timeout: 15000
+- scrollUntilVisible:
+    element: "Maestro filter testing"
+    direction: DOWN
+    timeout: 10000
+    visibilityPercentage: 60
+- assertVisible: "Maestro filter testing"
+- scrollUntilVisible:
+    element: "Maestro filter open"
+    direction: DOWN
+    timeout: 10000
+    visibilityPercentage: 60
+- assertVisible: "Maestro filter open"
+
+# Сброс возвращает оба фильтра в состояние «Все».
+- scrollUntilVisible:
+    element: "Сбросить фильтры"
+    direction: UP
+    timeout: 10000
+    visibilityPercentage: 80
+- tapOn: "Сбросить фильтры"
+- extendedWaitUntil:
+    visible: "Все статусы"
+    timeout: 10000
+- assertVisible: "Все значения"

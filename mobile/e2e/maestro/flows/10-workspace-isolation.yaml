@@ -1,0 +1,92 @@
+appId: ru.maksim.qalab
+name: 10 — Смена Workspace и изоляция данных
+tags:
+  - extended
+  - workspace
+---
+- launchApp:
+    clearState: true
+    clearKeychain: true
+- evalScript: ${output.workspaceSuffix = Date.now().toString().slice(-12)}
+- evalScript: ${output.workspaceA = "10000000-0000-0000-0000-" + output.workspaceSuffix}
+- evalScript: ${output.workspaceB = "20000000-0000-0000-0000-" + output.workspaceSuffix}
+- extendedWaitUntil:
+    visible:
+      id: workspace-id
+    timeout: 20000
+
+# Переход в workspace A и создание записи.
+- tapOn: "Изменить Workspace ID"
+- tapOn:
+    id: workspace-input
+- eraseText
+- inputText: ${output.workspaceA}
+- hideKeyboard
+- tapOn:
+    text: "^Сохранить и перейти$"
+    enabled: true
+- extendedWaitUntil:
+    visible: "Дефектов пока нет"
+    timeout: 20000
+- tapOn:
+    id: create-issue-button
+- tapOn:
+    id: issue-title-input
+- inputText: "Maestro isolated defect"
+- tapOn:
+    id: issue-description-input
+- inputText: "Visible only inside workspace A"
+- hideKeyboard
+- tapOn:
+    text: "^Создать$"
+    enabled: true
+- extendedWaitUntil:
+    visible: "Дефект создан."
+    timeout: 15000
+# Workspace B не должен видеть запись A.
+- scrollUntilVisible:
+    element: "Изменить Workspace ID"
+    direction: UP
+    timeout: 10000
+    visibilityPercentage: 80
+- tapOn: "Изменить Workspace ID"
+- tapOn:
+    id: workspace-input
+- eraseText
+- inputText: ${output.workspaceB}
+- hideKeyboard
+- tapOn:
+    text: "^Сохранить и перейти$"
+    enabled: true
+- extendedWaitUntil:
+    visible: "Дефектов пока нет"
+    timeout: 20000
+- assertNotVisible: "Maestro isolated defect"
+
+# Возврат в A восстанавливает исходный набор.
+- tapOn: "Изменить Workspace ID"
+- tapOn:
+    id: workspace-input
+- eraseText
+- inputText: ${output.workspaceA}
+- hideKeyboard
+- tapOn:
+    text: "^Сохранить и перейти$"
+    enabled: true
+- extendedWaitUntil:
+    visible: "Maestro isolated defect"
+    timeout: 20000
+
+# Явный teardown записи из workspace A.
+- scrollUntilVisible:
+    element: "Удалить дефект «Maestro isolated defect»"
+    direction: DOWN
+    timeout: 10000
+    visibilityPercentage: 80
+- tapOn: "Удалить дефект «Maestro isolated defect»"
+- tapOn:
+    text: "^Удалить$"
+    enabled: true
+- extendedWaitUntil:
+    visible: "Дефект удалён."
+    timeout: 15000

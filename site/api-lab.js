@@ -14,6 +14,20 @@ const STATUS_LABELS = {
   testing: "Тестирование",
   resolved: "Решён"
 };
+const FILTER_CONFIG = {
+  status: {
+    labels: STATUS_LABELS,
+    allLabel: "Все статусы",
+    allDescription: "Выбраны все статусы",
+    clearedMessage: "Выбраны все статусы — фильтр снят."
+  },
+  severity: {
+    labels: SEVERITY_LABELS,
+    allLabel: "Все значения",
+    allDescription: "Выбраны все значения критичности",
+    clearedMessage: "Выбраны все значения критичности — фильтр снят."
+  }
+};
 const STATUS_FLOW = ["open", "in_progress", "testing", "resolved"];
 const STATUS_TRANSITIONS = {
   open: ["in_progress"],
@@ -59,7 +73,7 @@ const state = {
   workspaceRevision: 0,
   items: [],
   total: 0,
-  filters: { q: "", status: "", severity: "" },
+  filters: { q: "", status: [], severity: [] },
   selectedIssue: null,
   formSnapshot: null,
   formMode: "create",
@@ -71,11 +85,13 @@ const state = {
   listToken: 0,
   requestSequence: 0,
   inspectorSequence: 0,
+  inspectorContentRevision: 0,
   unsavedSourceDialog: null
 };
 
 const elements = {
   workspaceId: document.querySelector("[data-workspace-id]"),
+  copyWorkspace: document.querySelector("[data-copy-workspace]"),
   editWorkspace: document.querySelector("[data-edit-workspace]"),
   workspaceDialog: document.querySelector("[data-workspace-dialog]"),
   workspaceForm: document.querySelector("[data-workspace-form]"),
@@ -83,8 +99,7 @@ const elements = {
   workspaceError: document.querySelector("[data-workspace-error]"),
   filterForm: document.querySelector("[data-filter-form]"),
   filterQuery: document.querySelector("#filter-query"),
-  filterStatus: document.querySelector("#filter-status"),
-  filterSeverity: document.querySelector("#filter-severity"),
+  filterMultiselects: document.querySelectorAll("[data-filter-multiselect]"),
   retryLoad: document.querySelector("[data-retry-load]"),
   loadError: document.querySelector("[data-load-error]"),
   loadErrorMessage: document.querySelector("[data-load-error-message]"),
@@ -110,6 +125,9 @@ const elements = {
   requestJson: document.querySelector("[data-request-json]"),
   responseBodySection: document.querySelector("[data-response-body-section]"),
   responseJson: document.querySelector("[data-response-json]"),
+  curlCommand: document.querySelector("[data-curl-command]"),
+  apiCopyButtons: document.querySelectorAll("[data-copy-api]"),
+  apiCopyStatus: document.querySelector("[data-api-copy-status]"),
   detailsDialog: document.querySelector("[data-details-dialog]"),
   detailsTitle: document.querySelector("[data-details-title]"),
   detailsDescription: document.querySelector("[data-details-description]"),
@@ -158,6 +176,7 @@ function normalizeWorkspaceId(value) {
 
 function displayWorkspaceId(workspaceId) {
   elements.workspaceId.textContent = workspaceId;
+  resetCopyFeedback(elements.copyWorkspace);
 }
 
 function initializeWorkspace() {
@@ -214,7 +233,9 @@ function issueWord(count) {
 }
 
 function hasActiveFilters() {
-  return Boolean(state.filters.q || state.filters.status || state.filters.severity);
+  return Boolean(
+    state.filters.q || state.filters.status.length || state.filters.severity.length
+  );
 }
 
 function getErrorMessage(error) {
@@ -232,9 +253,183 @@ function isStatusTransitionConflict(error) {
   );
 }
 
+const copyFeedbackTimers = new WeakMap();
+let copyAnnouncementTimer;
+
+function quoteShellArgument(value) {
+  return "'" + String(value).replaceAll("'", "'\"'\"'") + "'";
+}
+
+function formatCurlCommand({ method, url, headers, serializedBody }) {
+  const lines = [
+    "curl --request " + method,
+    "  --url " + quoteShellArgument(new URL(url, window.location.href).href)
+  ];
+
+  for (const [name, value] of Object.entries(headers)) {
+    lines.push("  --header " + quoteShellArgument(name + ": " + value));
+  }
+
+  if (serializedBody !== undefined) {
+    lines.push("  --data-raw " + quoteShellArgument(serializedBody));
+  }
+
+  return lines.join(" \\\n");
+}
+
+function resetCopyFeedback(button) {
+  window.clearTimeout(copyFeedbackTimers.get(button));
+  copyFeedbackTimers.delete(button);
+  button.dataset.tooltip = "Копировать";
+  button.classList.remove("is-copied", "is-error");
+  const message = button
+    .closest(".api-code-block")
+    ?.querySelector("[data-copy-message]");
+  if (message) {
+    message.textContent = "";
+    message.hidden = true;
+  }
+}
+
+function showCopyFeedback(button, message, className) {
+  resetCopyFeedback(button);
+  button.dataset.tooltip = message;
+  button.classList.add(className);
+}
+
+function resetApiCopyFeedback() {
+  elements.apiCopyButtons.forEach(resetCopyFeedback);
+  window.clearTimeout(copyAnnouncementTimer);
+  elements.apiCopyStatus.textContent = "";
+}
+
+function announceApiCopy(message) {
+  window.clearTimeout(copyAnnouncementTimer);
+  elements.apiCopyStatus.textContent = "";
+  copyAnnouncementTimer = window.setTimeout(() => {
+    elements.apiCopyStatus.textContent = message;
+  }, 20);
+}
+
+async function writeClipboardText(text) {
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return;
+    } catch {
+      // Use the selection-based fallback when Clipboard API access is denied.
+    }
+  }
+
+  const activeElement = document.activeElement;
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "");
+  textarea.setAttribute("aria-hidden", "true");
+  textarea.style.position = "fixed";
+  textarea.style.left = "-9999px";
+  textarea.style.opacity = "0";
+  document.body.append(textarea);
+  textarea.select();
+
+  let copied = false;
+  try {
+    copied = document.execCommand("copy");
+  } finally {
+    textarea.remove();
+    if (activeElement instanceof HTMLElement) activeElement.focus();
+  }
+
+  if (!copied) throw new Error("Clipboard is unavailable");
+}
+
+function getApiCopyContent(target) {
+  if (target === "request") {
+    return { text: elements.requestJson.textContent, label: "Тело запроса" };
+  }
+  if (target === "response") {
+    return { text: elements.responseJson.textContent, label: "Тело ответа" };
+  }
+  return { text: elements.curlCommand.textContent, label: "cURL" };
+}
+
+function selectApiCode(button) {
+  const pre = button.closest(".api-code-block")?.querySelector(".api-json");
+  const code = pre?.querySelector("code");
+  if (!(pre instanceof HTMLElement) || !code) return;
+
+  pre.focus();
+  const selection = window.getSelection();
+  if (!selection) return;
+
+  const range = document.createRange();
+  range.selectNodeContents(code);
+  selection.removeAllRanges();
+  selection.addRange(range);
+}
+
+async function handleApiCopy(button) {
+  const { text, label } = getApiCopyContent(button.dataset.copyApi);
+  const contentRevision = state.inspectorContentRevision;
+
+  try {
+    await writeClipboardText(text);
+    if (contentRevision !== state.inspectorContentRevision) return;
+
+    showCopyFeedback(button, "Скопировано", "is-copied");
+    announceApiCopy(label + " скопирован" + (label === "cURL" ? "." : "о."));
+  } catch {
+    if (contentRevision !== state.inspectorContentRevision) return;
+
+    showCopyFeedback(button, "Не скопировано", "is-error");
+    selectApiCode(button);
+    const message = button
+      .closest(".api-code-block")
+      ?.querySelector("[data-copy-message]");
+    if (message) {
+      message.textContent =
+        "Содержимое выделено — скопируйте его вручную (Ctrl+C или ⌘C).";
+      message.hidden = false;
+    }
+    announceApiCopy(
+      "Не удалось скопировать " +
+        label.toLowerCase() +
+        ". Содержимое выделено — скопируйте его вручную."
+    );
+  }
+
+  const timer = window.setTimeout(() => resetCopyFeedback(button), 1800);
+  copyFeedbackTimers.set(button, timer);
+}
+
+async function handleWorkspaceCopy() {
+  const workspaceId = state.workspaceId;
+
+  try {
+    await writeClipboardText(workspaceId);
+    if (workspaceId !== state.workspaceId) return;
+
+    showCopyFeedback(elements.copyWorkspace, "Скопировано", "is-copied");
+    announce("Workspace ID скопирован.");
+  } catch {
+    if (workspaceId !== state.workspaceId) return;
+
+    showCopyFeedback(elements.copyWorkspace, "Не скопировано", "is-error");
+    announce("Не удалось скопировать Workspace ID.");
+  }
+
+  const timer = window.setTimeout(
+    () => resetCopyFeedback(elements.copyWorkspace),
+    1800
+  );
+  copyFeedbackTimers.set(elements.copyWorkspace, timer);
+}
+
 function recordRequest(sequence, details) {
   if (sequence < state.inspectorSequence) return;
   state.inspectorSequence = sequence;
+  state.inspectorContentRevision += 1;
+  resetApiCopyFeedback();
   elements.apiEmpty.hidden = true;
   elements.apiDetails.hidden = false;
   elements.requestMethod.textContent = details.method;
@@ -257,6 +452,7 @@ function recordRequest(sequence, details) {
       ? details.responseBody
       : JSON.stringify(details.responseBody, null, 2)
     : "";
+  elements.curlCommand.textContent = formatCurlCommand(details);
 }
 
 async function request(path, { method = "GET", body, signal, inspect = true } = {}) {
@@ -264,6 +460,7 @@ async function request(path, { method = "GET", body, signal, inspect = true } = 
   const workspaceRevision = state.workspaceRevision;
   const workspaceId = state.workspaceId;
   const startedAt = performance.now();
+  const serializedBody = body === undefined ? undefined : JSON.stringify(body);
   const headers = {
     Accept: "application/json",
     "X-Demo-Workspace-Id": workspaceId
@@ -275,7 +472,7 @@ async function request(path, { method = "GET", body, signal, inspect = true } = 
     const response = await fetch(path, {
       method,
       headers,
-      body: body === undefined ? undefined : JSON.stringify(body),
+      body: serializedBody,
       signal
     });
     const responseText = await response.text();
@@ -299,6 +496,8 @@ async function request(path, { method = "GET", body, signal, inspect = true } = 
         url: path,
         statusLabel: response.status + (response.statusText ? " " + response.statusText : ""),
         duration: performance.now() - startedAt,
+        headers,
+        serializedBody,
         requestBody: body,
         responseBody,
         ok: response.ok
@@ -326,6 +525,8 @@ async function request(path, { method = "GET", body, signal, inspect = true } = 
         url: path,
         statusLabel: "NETWORK ERROR",
         duration: performance.now() - startedAt,
+        headers,
+        serializedBody,
         requestBody: body,
         responseBody: { error: { message: "Network request failed" } },
         ok: false
@@ -339,8 +540,8 @@ const api = {
   list(filters, signal, inspectRequest = true) {
     const query = new URLSearchParams();
     if (filters.q) query.set("q", filters.q);
-    if (filters.status) query.set("status", filters.status);
-    if (filters.severity) query.set("severity", filters.severity);
+    for (const status of filters.status) query.append("status", status);
+    for (const severity of filters.severity) query.append("severity", severity);
     const suffix = query.size > 0 ? "?" + query.toString() : "";
     return request("/api/issues" + suffix, { signal, inspect: inspectRequest });
   },
@@ -431,8 +632,9 @@ function issueMatchesActiveFilters(issue) {
   const searchableText = (issue.title + "\n" + issue.description).toLocaleLowerCase("ru");
   return (
     (!query || searchableText.includes(query)) &&
-    (!state.filters.status || issue.status === state.filters.status) &&
-    (!state.filters.severity || issue.severity === state.filters.severity)
+    (!state.filters.status.length || state.filters.status.includes(issue.status)) &&
+    (!state.filters.severity.length ||
+      state.filters.severity.includes(issue.severity))
   );
 }
 
@@ -554,11 +756,117 @@ async function loadIssues({ inspectRequest = true } = {}) {
   }
 }
 
+function getFilterMultiselect(name) {
+  return Array.from(elements.filterMultiselects).find(
+    (component) => component.dataset.filterMultiselect === name
+  );
+}
+
+function getFilterOptions(component) {
+  return Array.from(component.querySelectorAll("[data-filter-option]"));
+}
+
+function getSelectedFilterValues(component) {
+  return getFilterOptions(component)
+    .filter((option) => option.checked)
+    .map((option) => option.value);
+}
+
+function updateFilterMultiselect(component) {
+  const name = component.dataset.filterMultiselect;
+  const config = FILTER_CONFIG[name];
+  const selectedValues = getSelectedFilterValues(component);
+  const selectedLabels = selectedValues.map((value) => config.labels[value]);
+  const allOption = component.querySelector("[data-filter-all]");
+  const value = component.querySelector("[data-filter-value]");
+  const description = component.querySelector("[data-filter-description]");
+  const trigger = component.querySelector("[data-filter-trigger]");
+
+  allOption.checked = selectedValues.length === 0;
+  value.textContent =
+    selectedLabels.length === 0
+      ? config.allLabel
+      : selectedLabels.length === 1
+        ? selectedLabels[0]
+        : selectedLabels.length + " выбрано";
+  description.textContent =
+    selectedLabels.length === 0
+      ? config.allDescription
+      : "Выбрано: " + selectedLabels.join(", ");
+  trigger.title = description.textContent;
+}
+
+function normalizeFilterSelection(component, changedOption) {
+  const allOption = component.querySelector("[data-filter-all]");
+  const options = getFilterOptions(component);
+
+  if (changedOption === allOption) {
+    allOption.checked = true;
+    options.forEach((option) => {
+      option.checked = false;
+    });
+  } else {
+    allOption.checked = false;
+    const selectedCount = options.filter((option) => option.checked).length;
+    if (selectedCount === 0 || selectedCount === options.length) {
+      options.forEach((option) => {
+        option.checked = false;
+      });
+      allOption.checked = true;
+    }
+  }
+
+  updateFilterMultiselect(component);
+  if (allOption.checked) {
+    announce(FILTER_CONFIG[component.dataset.filterMultiselect].clearedMessage);
+  }
+}
+
+function setFilterMultiselectOpen(component, isOpen) {
+  if (isOpen) {
+    elements.filterMultiselects.forEach((otherComponent) => {
+      if (otherComponent !== component) {
+        setFilterMultiselectOpen(otherComponent, false);
+      }
+    });
+  }
+
+  const trigger = component.querySelector("[data-filter-trigger]");
+  const menu = component.querySelector("[data-filter-menu]");
+  component.classList.toggle("is-open", isOpen);
+  trigger.setAttribute("aria-expanded", String(isOpen));
+  menu.hidden = !isOpen;
+}
+
+function focusSelectedFilterOption(component) {
+  const selectedOption = component.querySelector(
+    "[data-filter-all]:checked, [data-filter-option]:checked"
+  );
+  (selectedOption || component.querySelector("[data-filter-all]")).focus();
+}
+
+function closeFilterMultiselects() {
+  elements.filterMultiselects.forEach((component) => {
+    setFilterMultiselectOpen(component, false);
+  });
+}
+
+function resetFilterMultiselects() {
+  elements.filterMultiselects.forEach((component) => {
+    component.querySelector("[data-filter-all]").checked = true;
+    getFilterOptions(component).forEach((option) => {
+      option.checked = false;
+    });
+    updateFilterMultiselect(component);
+    setFilterMultiselectOpen(component, false);
+  });
+}
+
 function syncFilters() {
   state.filters = {
     q: elements.filterQuery.value.trim(),
-    status: elements.filterStatus.value,
-    severity: elements.filterSeverity.value
+    status: getSelectedFilterValues(getFilterMultiselect("status")),
+    severity: getSelectedFilterValues(getFilterMultiselect("severity"))
   };
 }
 
@@ -655,6 +963,8 @@ function requestWorkspaceDialogClose() {
 }
 
 function resetApiInspector() {
+  state.inspectorContentRevision += 1;
+  resetApiCopyFeedback();
   elements.apiEmpty.textContent = "Загружаем данные выбранного Workspace…";
   elements.apiEmpty.hidden = false;
   elements.apiDetails.hidden = true;
@@ -694,8 +1004,7 @@ async function handleWorkspaceSubmit(event) {
   state.statusUpdates.clear();
   elements.issueList.replaceChildren();
   elements.filterQuery.value = "";
-  elements.filterStatus.value = "";
-  elements.filterSeverity.value = "";
+  resetFilterMultiselects();
   syncFilters();
   displayWorkspaceId(workspaceId);
   resetApiInspector();
@@ -1228,8 +1537,14 @@ async function handleInlineStatusChange(control) {
 }
 
 let searchTimer;
+let filterPointerInteractionActive = false;
 
 function bindEvents() {
+  elements.copyWorkspace.addEventListener("click", handleWorkspaceCopy);
+  elements.apiCopyButtons.forEach((button) => {
+    button.addEventListener("click", () => handleApiCopy(button));
+  });
+
   elements.editWorkspace.addEventListener("click", () => {
     openWorkspaceDialog(elements.editWorkspace);
   });
@@ -1246,6 +1561,7 @@ function bindEvents() {
   elements.filterForm.addEventListener("submit", (event) => {
     event.preventDefault();
     window.clearTimeout(searchTimer);
+    closeFilterMultiselects();
     syncFilters();
     loadIssues();
   });
@@ -1258,17 +1574,86 @@ function bindEvents() {
     }, 300);
   });
 
-  for (const select of [elements.filterStatus, elements.filterSeverity]) {
-    select.addEventListener("change", () => {
-      window.clearTimeout(searchTimer);
-      syncFilters();
-      loadIssues();
+  elements.filterMultiselects.forEach((component) => {
+    const trigger = component.querySelector("[data-filter-trigger]");
+
+    trigger.addEventListener("click", () => {
+      const willOpen = trigger.getAttribute("aria-expanded") !== "true";
+      setFilterMultiselectOpen(component, willOpen);
+      if (willOpen) focusSelectedFilterOption(component);
     });
-  }
+
+    trigger.addEventListener("keydown", (event) => {
+      if (event.key !== "ArrowDown") return;
+      event.preventDefault();
+      setFilterMultiselectOpen(component, true);
+      focusSelectedFilterOption(component);
+    });
+
+    component.addEventListener("change", (event) => {
+      if (!(event.target instanceof HTMLInputElement)) return;
+      if (!event.target.matches("[data-filter-all], [data-filter-option]")) return;
+
+      window.clearTimeout(searchTimer);
+      const previousFilters = JSON.stringify(state.filters);
+      normalizeFilterSelection(component, event.target);
+      syncFilters();
+      if (JSON.stringify(state.filters) !== previousFilters) loadIssues();
+    });
+
+    component.addEventListener("keydown", (event) => {
+      if (event.key !== "Escape" || trigger.getAttribute("aria-expanded") !== "true") {
+        return;
+      }
+      event.preventDefault();
+      setFilterMultiselectOpen(component, false);
+      trigger.focus();
+    });
+  });
+
+  // Mobile menus participate in layout, so pointer focus must not collapse one
+  // before the click is delivered to another control. Keyboard focus still
+  // closes a menu immediately when Tab moves outside it.
+  document.addEventListener(
+    "pointerdown",
+    () => {
+      filterPointerInteractionActive = true;
+    },
+    true
+  );
+  document.addEventListener(
+    "pointerup",
+    () => {
+      filterPointerInteractionActive = false;
+    },
+    true
+  );
+  document.addEventListener(
+    "pointercancel",
+    () => {
+      filterPointerInteractionActive = false;
+    },
+    true
+  );
+
+  document.addEventListener("click", (event) => {
+    filterPointerInteractionActive = false;
+    elements.filterMultiselects.forEach((component) => {
+      if (!component.contains(event.target)) setFilterMultiselectOpen(component, false);
+    });
+  });
+
+  document.addEventListener("focusin", (event) => {
+    if (filterPointerInteractionActive) return;
+    elements.filterMultiselects.forEach((component) => {
+      if (!component.contains(event.target)) setFilterMultiselectOpen(component, false);
+    });
+  });
 
   elements.filterForm.addEventListener("reset", () => {
     window.clearTimeout(searchTimer);
     window.setTimeout(() => {
+      resetFilterMultiselects();
       syncFilters();
       loadIssues();
     }, 0);
@@ -1297,18 +1682,40 @@ function bindEvents() {
   });
 
   elements.issueList.addEventListener("click", async (event) => {
+    if (!(event.target instanceof Element)) return;
     const button = event.target.closest("[data-action]");
-    if (!button) return;
-    const issue = state.items.find((item) => item.id === button.dataset.id);
-    if (!issue || state.openingIssue) return;
+    if (button) {
+      const issue = state.items.find((item) => item.id === button.dataset.id);
+      if (!issue || state.openingIssue) return;
 
-    if (button.dataset.action === "read") {
-      await fetchIssueAndOpen(issue.id, button, "details");
-    } else if (button.dataset.action === "edit") {
-      await fetchIssueAndOpen(issue.id, button, "edit");
-    } else if (button.dataset.action === "delete") {
-      openDeleteDialog(issue, button);
+      if (button.dataset.action === "read") {
+        await fetchIssueAndOpen(issue.id, button, "details");
+      } else if (button.dataset.action === "edit") {
+        await fetchIssueAndOpen(issue.id, button, "edit");
+      } else if (button.dataset.action === "delete") {
+        openDeleteDialog(issue, button);
+      }
+      return;
     }
+
+    const selection = window.getSelection();
+    if (
+      event.defaultPrevented ||
+      event.target.closest(
+        'button, a[href], input, select, textarea, summary, [role="button"], ' +
+          '[role="link"], [contenteditable="true"], [data-issue-status-control]'
+      ) ||
+      (selection && !selection.isCollapsed)
+    ) {
+      return;
+    }
+
+    const article = event.target.closest(".issue-card");
+    const readButton = article?.querySelector('[data-action="read"]');
+    const issue = state.items.find((item) => item.id === readButton?.dataset.id);
+    if (!issue || !readButton || readButton.disabled || state.openingIssue) return;
+
+    await fetchIssueAndOpen(issue.id, readButton, "details");
   });
 
   document.querySelectorAll("[data-close-details]").forEach((button) => {
@@ -1364,10 +1771,14 @@ function bindEvents() {
     dialog.addEventListener("close", () => restoreDialogFocus(dialog));
     dialog.addEventListener("click", (event) => {
       if (event.target === dialog && !state.submitting && !state.deleting) {
+        if (dialog === elements.workspaceDialog) {
+          return;
+        }
+        if (dialog === elements.issueDialog && state.formMode === "edit") {
+          return;
+        }
         if (dialog === elements.issueDialog) {
           requestIssueDialogClose();
-        } else if (dialog === elements.workspaceDialog) {
-          requestWorkspaceDialogClose();
         } else {
           closeDialog(dialog);
         }
@@ -1398,6 +1809,8 @@ function bindEvents() {
 
 async function init() {
   initializeWorkspace();
+  resetFilterMultiselects();
+  syncFilters();
   bindEvents();
   if (!state.workspacePersistent) {
     announce("Идентификатор demo-пространства не сохранится после закрытия страницы.");

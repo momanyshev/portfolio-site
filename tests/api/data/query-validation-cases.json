@@ -36,12 +36,75 @@
     ]
   },
   {
-    "caseName": "Повторяющийся status",
-    "queryString": "status=open&status=resolved",
+    "caseName": "Дублирующийся status",
+    "queryString": "status=open&status=open",
     "expectedStatus": 400,
     "expectedCode": "INVALID_QUERY",
     "expectedFields": [
       "status"
+    ]
+  },
+  {
+    "caseName": "Дублирующийся severity",
+    "queryString": "severity=high&severity=high",
+    "expectedStatus": 400,
+    "expectedCode": "INVALID_QUERY",
+    "expectedFields": [
+      "severity"
+    ]
+  },
+  {
+    "caseName": "Пустой status",
+    "queryString": "status=",
+    "expectedStatus": 400,
+    "expectedCode": "INVALID_QUERY",
+    "expectedFields": [
+      "status"
+    ]
+  },
+  {
+    "caseName": "Пустой severity",
+    "queryString": "severity=",
+    "expectedStatus": 400,
+    "expectedCode": "INVALID_QUERY",
+    "expectedFields": [
+      "severity"
+    ]
+  },
+  {
+    "caseName": "CSV вместо повторяющегося status",
+    "queryString": "status=open,testing",
+    "expectedStatus": 400,
+    "expectedCode": "INVALID_QUERY",
+    "expectedFields": [
+      "status"
+    ]
+  },
+  {
+    "caseName": "CSV вместо повторяющегося severity",
+    "queryString": "severity=high,blocker",
+    "expectedStatus": 400,
+    "expectedCode": "INVALID_QUERY",
+    "expectedFields": [
+      "severity"
+    ]
+  },
+  {
+    "caseName": "Валидный и некорректный status",
+    "queryString": "status=open&status=closed",
+    "expectedStatus": 400,
+    "expectedCode": "INVALID_QUERY",
+    "expectedFields": [
+      "status"
+    ]
+  },
+  {
+    "caseName": "Валидный и некорректный severity",
+    "queryString": "severity=high&severity=urgent",
+    "expectedStatus": 400,
+    "expectedCode": "INVALID_QUERY",
+    "expectedFields": [
+      "severity"
     ]
   },
   {
