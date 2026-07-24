@@ -1,39 +1,117 @@
 # Repository Guidelines
 
+## Границы репозитория
+
+Этот репозиторий — приложение QA Lab: портфолио-сайт, REST API трекера
+дефектов и мобильный клиент. Здесь ведётся продуктовая работа: фичи, дефекты,
+авто-тесты приложения.
+
+Исследование инструмента `sim-use` и будущий мобильный QA-агент живут в
+**отдельном репозитории `../mobile-qa-research`** (план
+`docs/testing-learning-plan.md`, evidence, skill-заметки). Если задача про
+`sim-use`, этапы плана, accessibility-карты или evidence — работай там и
+следуй его `AGENTS.md`; для того трека QA Lab — только полигон, и его дефекты
+не исследуются и не чинятся попутно, а фиксируются одной строкой (issue здесь
+или заметка пользователю).
+
 ## Project Structure & Module Organization
 
-`site/` is the deployable frontend. It contains the portfolio, QA Lab pages, vanilla JavaScript, styles, and static assets. `netlify/functions/issues.mjs` exposes the CRUD API; reusable validation and persistence code lives in `netlify/lib/`. Keep Playwright specifications in `tests/e2e/`. Postman API tests live in the single collection `tests/api/api-lab.postman_collection.json`; iteration data belongs in `tests/api/data/`, the local environment belongs in `tests/api/environments/`, and usage notes belong in `tests/api/README.md`. Supporting API documentation and the OpenAPI contract live in `docs/`. Root files such as `netlify.toml` and `playwright.config.ts` define hosting, redirects, browsers, and local test startup.
+`site/` is the deployable frontend. It contains the portfolio, QA Lab pages,
+vanilla JavaScript, styles, and static assets. `netlify/functions/issues.mjs`
+exposes the CRUD API; reusable validation and persistence code lives in
+`netlify/lib/`. `mobile/` is QA Lab Mobile — an Expo/React Native client for
+the same `/api/issues` API (`ru.maksim.qalab`); it has its own `AGENTS.md`,
+`README.md`, unit tests, and Maestro E2E flows in `mobile/e2e/maestro/`. Keep
+Playwright specifications in `tests/e2e/`. Postman API tests live in the single
+collection `tests/api/api-lab.postman_collection.json`; iteration data belongs
+in `tests/api/data/`, the local environment belongs in
+`tests/api/environments/`, and usage notes belong in `tests/api/README.md`.
+Supporting API documentation and the OpenAPI contract live in `docs/`
+(`api-lab.md`, `api-test-plan.md`, `openapi.yaml`). The sim-use research track
+lives in the separate `../mobile-qa-research` repository. Root files such as
+`netlify.toml` and `playwright.config.ts` define hosting, redirects, browsers,
+and local test startup.
 
 ## Build, Test, and Development Commands
 
 Use Node 22 (`nvm use`) and install the locked dependency set with `npm ci`.
 
-- `npm run dev` starts the static site and Netlify Functions at `http://127.0.0.1:8888`.
-- `npm run serve:static` serves only `site/` at `http://127.0.0.1:4173`; API features will not work.
+- `npm run dev` starts the static site and Netlify Functions at
+  `http://127.0.0.1:8888`.
+- `npm run serve:static` serves only `site/` at `http://127.0.0.1:4173`; API
+  features will not work.
 - `npm test` runs the complete Playwright suite.
 - `npm run test:ui` or `npm run test:headed` helps debug tests interactively.
 - `npm run report` opens the latest HTML report.
-- `npx --no-install newman run tests/api/api-lab.postman_collection.json -e tests/api/environments/api-lab.local.postman_environment.json --folder "01 — CRUD smoke"` runs the Postman smoke folder against a separately running `npm run dev` server.
+- `npx --no-install newman run tests/api/api-lab.postman_collection.json -e tests/api/environments/api-lab.local.postman_environment.json --folder "01 — CRUD smoke"`
+  runs the Postman smoke folder against a separately running `npm run dev`
+  server.
 
-Newman is a locked dev dependency. Invoke it through `npx --no-install newman` or an npm script, not through an assumed global installation. See `tests/api/README.md` for the matching folder and `-d` data-file commands for POST, PATCH, and query validation. Do not use Newman `--bail`, because an early stop can skip teardown requests.
+Newman is a locked dev dependency. Invoke it through `npx --no-install newman`
+or an npm script, not through an assumed global installation. See
+`tests/api/README.md` for the matching folder and `-d` data-file commands for
+POST, PATCH, and query validation. Do not use Newman `--bail`, because an early
+stop can skip teardown requests.
 
 There is no separate compile step: Netlify publishes `site/` directly.
 
+### Mobile (QA Lab Mobile)
+
+Run from `mobile/`. The app is a development build (not Expo Go) and needs a
+running backend (`npm run dev` in the repo root, port 8888).
+
+- `npm run ios:local` — build and run on iOS Simulator with
+  `EXPO_PUBLIC_API_BASE_URL=http://127.0.0.1:8888`.
+- `npm run android:local` — build and run on Android Emulator with
+  `EXPO_PUBLIC_API_BASE_URL=http://10.0.2.2:8888`. In fresh shells provide
+  explicit paths:
+  `JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home"`,
+  `ANDROID_HOME="/Users/maksim/Library/Android/sdk"` (Node 22 and Android SDK
+  are not on the global PATH).
+- Do not reuse one Metro process across platforms: the API URL is baked per
+  platform at bundle time. Restart the platform-specific command when
+  switching, and verify the actual URL in the app's API inspector.
+- `npm test` (in `mobile/`) — Jest unit tests; Maestro flows live in
+  `mobile/e2e/maestro/`.
+
+Full fixed versions (Xcode, AVD, sim-use, device IDs) are recorded in stage 1
+of `../mobile-qa-research/docs/testing-learning-plan.md`.
+
 ## Coding Style & Naming Conventions
 
-Follow the existing two-space indentation and semicolon style. Use double quotes in JavaScript and TypeScript, `camelCase` for functions and variables, `UPPER_SNAKE_CASE` for constants, and kebab-case for CSS classes and data attributes. Prefer semantic HTML and accessible labels because tests locate elements by roles and names. Name tests after features, for example `api-lab.spec.ts`. No formatter or linter is enforced, so match adjacent code and keep changes focused.
+Follow the existing two-space indentation and semicolon style. Use double
+quotes in JavaScript and TypeScript, `camelCase` for functions and variables,
+`UPPER_SNAKE_CASE` for constants, and kebab-case for CSS classes and data
+attributes. Prefer semantic HTML and accessible labels because tests locate
+elements by roles and names. Name tests after features, for example
+`api-lab.spec.ts`. No formatter or linter is enforced, so match adjacent code
+and keep changes focused.
 
 ## Testing Guidelines
 
 ### Playwright
 
-Tests use `@playwright/test` across Chromium, Firefox, WebKit, and mobile Chrome. Name files `*.spec.ts` and prefer `getByRole`, `getByLabel`, or `getByText` over brittle CSS selectors. Isolate CRUD scenarios with a unique workspace ID, and assert both HTTP responses and visible UI outcomes where relevant.
+Tests use `@playwright/test` across Chromium, Firefox, WebKit, and mobile
+Chrome. Name files `*.spec.ts` and prefer `getByRole`, `getByLabel`, or
+`getByText` over brittle CSS selectors. Isolate CRUD scenarios with a unique
+workspace ID, and assert both HTTP responses and visible UI outcomes where
+relevant.
 
 ### Postman and Newman
 
-Keep one Postman collection divided into independently runnable folders: CRUD smoke, data-driven validation, protocol/contract, and workspace isolation. Each folder must generate fresh workspace IDs at runtime, create its own fixtures, and remove created issues in explicit teardown requests. Store only `baseUrl` in a committed Postman environment; never persist runtime workspace or issue IDs.
+Keep one Postman collection divided into independently runnable folders: CRUD
+smoke, data-driven validation, protocol/contract, and workspace isolation. Each
+folder must generate fresh workspace IDs at runtime, create its own fixtures,
+and remove created issues in explicit teardown requests. Store only `baseUrl`
+in a committed Postman environment; never persist runtime workspace or issue
+IDs.
 
-Put universal response-time and protocol assertions in the collection-level post-response script. Keep expected status codes and business-body assertions at request level. Every request must check its expected status, complete in under one second, and validate the relevant response body or the intentionally empty `204` body. Error scenarios must verify `error.code`, relevant `error.fields`, and the common error contract.
+Put universal response-time and protocol assertions in the collection-level
+post-response script. Keep expected status codes and business-body assertions
+at request level. Every request must check its expected status, complete in
+under one second, and validate the relevant response body or the intentionally
+empty `204` body. Error scenarios must verify `error.code`, relevant
+`error.fields`, and the common error contract.
 
 Run each data-driven folder only with its matching file:
 
@@ -41,14 +119,28 @@ Run each data-driven folder only with its matching file:
 - `02.2 — PATCH body (data-driven)` with `tests/api/data/patch-validation-cases.json`;
 - `02.3 — Query (data-driven)` with `tests/api/data/query-validation-cases.json`.
 
-Each data row represents one independent iteration and includes a case name, request input, expected status, expected error code, and expected fields. Update the collection, matching data file, and `tests/api/README.md` together when the data contract or folder names change. Do not run the parent `02 — Validation` folder with one child folder's data file.
+Each data row represents one independent iteration and includes a case name,
+request input, expected status, expected error code, and expected fields.
+Update the collection, matching data file, and `tests/api/README.md` together
+when the data contract or folder names change. Do not run the parent
+`02 — Validation` folder with one child folder's data file.
 
-Run `npm test` for frontend or E2E changes and the relevant Newman folders for API collection or contract changes. The project has no numeric coverage threshold; generated reports and test results must remain untracked.
+Run `npm test` for frontend or E2E changes and the relevant Newman folders for
+API collection or contract changes. The project has no numeric coverage
+threshold; generated reports and test results must remain untracked (sim-use
+research evidence is version-controlled in `../mobile-qa-research`, not here).
 
 ## Commit & Pull Request Guidelines
 
-Recent commits use short, imperative, sentence-case subjects, such as `Add Playwright testing setup`. Keep each commit scoped to one logical change. Pull requests should explain the behavior changed, list verification commands, link relevant issues, and include screenshots for visual updates.
+Recent commits use short, imperative, sentence-case subjects, such as
+`Add Playwright testing setup`. Keep each commit scoped to one logical change.
+Pull requests should explain the behavior changed, list verification commands,
+link relevant issues, and include screenshots for visual updates.
 
 ## Security & Configuration
 
-Do not commit secrets, `.netlify/`, `node_modules/`, `playwright-report/`, `test-results/`, or generated Newman reports. Committed Postman environments may contain non-sensitive endpoints such as `baseUrl` only. The demo workspace header separates test data; it is not authentication and must not be presented as a security boundary.
+Do not commit secrets, `.netlify/`, `node_modules/`, `playwright-report/`,
+generated Newman reports, or Playwright `test-results/` output. Committed
+Postman environments may contain non-sensitive endpoints such as `baseUrl`
+only. The demo workspace header separates test data; it is not authentication
+and must not be presented as a security boundary.

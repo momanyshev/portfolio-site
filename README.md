@@ -9,9 +9,15 @@
 - `site/` — статический frontend портфолио и QA Lab.
 - `netlify/functions/` — HTTP API трекера дефектов.
 - `netlify/lib/` — серверная валидация и слой Netlify Blobs.
+- `mobile/` — QA Lab Mobile: Expo/React Native клиент того же API
+  (см. `mobile/README.md`).
 - `tests/e2e/` — e2e-тесты Playwright.
 - `docs/` — API-контракт, архитектура и планы тестирования.
 - `netlify.toml` — публикация `site/`, Functions и локальный Netlify Dev.
+
+Исследование инструмента `sim-use` и будущий мобильный QA-агент живут в
+отдельном репозитории `../mobile-qa-research`; этот проект служит для них
+приложением-полигоном. Правила для AI-агентов см. в `AGENTS.md`.
 
 ## Требования
 
